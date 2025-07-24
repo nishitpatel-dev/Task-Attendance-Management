@@ -40,6 +40,11 @@ const EmployeeDashboard = () => {
   const [isPaused, setIsPaused] = useState(false)
   const [todayHours, setTodayHours] = useState(0)
   const [taskTimers, setTaskTimers] = useState({})
+  const [isOnManualBreak, setIsOnManualBreak] = useState(false) // Track manual break status
+  const [manualBreakStartTime, setManualBreakStartTime] = useState(null) // Track manual break start time
+  const [totalBreakTime, setTotalBreakTime] = useState(0) // Track total break time in seconds
+  const [isBreakPaused, setIsBreakPaused] = useState(false) // Track if break is paused
+  const [breakPauseStartTime, setBreakPauseStartTime] = useState(null) // Track when break was paused
   const [isAddTaskOpen, setIsAddTaskOpen] = useState(false)
   const [user, setUser] = useState(null)
   const [newTask, setNewTask] = useState({
@@ -59,20 +64,35 @@ const EmployeeDashboard = () => {
   const getUserActiveTaskKey = (userId) => `activeTaskId_${userId}`
   const getUserPausedKey = (userId) => `isPaused_${userId}`
   const getUserLastActiveDateKey = (userId) => `lastActiveDate_${userId}`
+  const getUserManualBreakKey = (userId) => `isOnManualBreak_${userId}`
+  const getUserManualBreakStartTimeKey = (userId) => `manualBreakStartTime_${userId}`
+  const getUserTotalBreakTimeKey = (userId) => `totalBreakTime_${userId}`
+  const getUserBreakPausedKey = (userId) => `isBreakPaused_${userId}`
+  const getUserBreakPauseStartTimeKey = (userId) => `breakPauseStartTime_${userId}`
 
   const loadUserTimerData = (userId) => {
     const savedTimers = localStorage.getItem(getUserTimerKey(userId))
     const savedActiveTaskId = localStorage.getItem(getUserActiveTaskKey(userId))
     const savedIsPaused = localStorage.getItem(getUserPausedKey(userId))
+    const savedIsOnManualBreak = localStorage.getItem(getUserManualBreakKey(userId))
+    const savedManualBreakStartTime = localStorage.getItem(getUserManualBreakStartTimeKey(userId))
+    const savedTotalBreakTime = localStorage.getItem(getUserTotalBreakTimeKey(userId))
+    const savedIsBreakPaused = localStorage.getItem(getUserBreakPausedKey(userId))
+    const savedBreakPauseStartTime = localStorage.getItem(getUserBreakPauseStartTimeKey(userId))
     
     return {
       timers: savedTimers ? JSON.parse(savedTimers) : {},
       activeTaskId: savedActiveTaskId ? parseInt(savedActiveTaskId) : null,
-      isPaused: savedIsPaused === 'true'
+      isPaused: savedIsPaused === 'true',
+      isOnManualBreak: savedIsOnManualBreak === 'true',
+      manualBreakStartTime: savedManualBreakStartTime ? parseInt(savedManualBreakStartTime) : null,
+      totalBreakTime: savedTotalBreakTime ? parseInt(savedTotalBreakTime) : 0,
+      isBreakPaused: savedIsBreakPaused === 'true',
+      breakPauseStartTime: savedBreakPauseStartTime ? parseInt(savedBreakPauseStartTime) : null
     }
   }
 
-  const saveUserTimerData = (userId, timers, activeTaskId, isPaused) => {
+  const saveUserTimerData = (userId, timers, activeTaskId, isPaused, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime) => {
     localStorage.setItem(getUserTimerKey(userId), JSON.stringify(timers))
     
     if (activeTaskId !== null) {
@@ -82,6 +102,21 @@ const EmployeeDashboard = () => {
     }
     
     localStorage.setItem(getUserPausedKey(userId), isPaused.toString())
+    localStorage.setItem(getUserManualBreakKey(userId), isOnManualBreak.toString())
+    localStorage.setItem(getUserTotalBreakTimeKey(userId), totalBreakTime.toString())
+    localStorage.setItem(getUserBreakPausedKey(userId), isBreakPaused.toString())
+    
+    if (manualBreakStartTime !== null) {
+      localStorage.setItem(getUserManualBreakStartTimeKey(userId), manualBreakStartTime.toString())
+    } else {
+      localStorage.removeItem(getUserManualBreakStartTimeKey(userId))
+    }
+    
+    if (breakPauseStartTime !== null) {
+      localStorage.setItem(getUserBreakPauseStartTimeKey(userId), breakPauseStartTime.toString())
+    } else {
+      localStorage.removeItem(getUserBreakPauseStartTimeKey(userId))
+    }
   }
 
   // Optional: Function to clear all timer data for a user (for admin use or reset)
@@ -90,34 +125,72 @@ const EmployeeDashboard = () => {
     localStorage.removeItem(getUserActiveTaskKey(userId))
     localStorage.removeItem(getUserPausedKey(userId))
     localStorage.removeItem(getUserLastActiveDateKey(userId))
+    localStorage.removeItem(getUserManualBreakKey(userId))
+    localStorage.removeItem(getUserManualBreakStartTimeKey(userId))
+    localStorage.removeItem(getUserTotalBreakTimeKey(userId))
+    localStorage.removeItem(getUserBreakPausedKey(userId))
+    localStorage.removeItem(getUserBreakPauseStartTimeKey(userId))
   }
 
-  // Timer effect for current time and task timers
+  // Timer effect for current time, task timers, and break time tracking
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date())
-      if (activeTaskId && !isPaused && user) {
+      if (activeTaskId && !isPaused && user && !isOnManualBreak) {
         setTaskTimers(prev => {
           const newTimers = {
             ...prev,
             [activeTaskId]: (prev[activeTaskId] || 0) + 1
           }
           // Save to user-specific localStorage
-          saveUserTimerData(user.id, newTimers, activeTaskId, isPaused)
+          saveUserTimerData(user.id, newTimers, activeTaskId, isPaused, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime)
           return newTimers
         })
+      }
+      
+      // Handle manual break time tracking
+      if (isOnManualBreak && !isBreakPaused && manualBreakStartTime && user) {
+        const currentTime = new Date()
+        const currentHour = currentTime.getHours()
+        
+        // Check if current time is still within break window (8 PM to 10 PM)
+        if (currentHour >= 20 && currentHour < 22) {
+          // Continue tracking break time
+          setTotalBreakTime(prev => {
+            const newBreakTime = prev + 1
+            saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused, isOnManualBreak, manualBreakStartTime, newBreakTime, isBreakPaused, breakPauseStartTime)
+            return newBreakTime
+          })
+        } else {
+          // Auto-stop break if it's past 10 PM
+          if (manualBreakStartTime) {
+            const breakDuration = Math.floor((Date.now() - manualBreakStartTime) / 1000)
+            setTotalBreakTime(prev => prev + breakDuration)
+          }
+          setIsOnManualBreak(false)
+          setManualBreakStartTime(null)
+          setIsBreakPaused(false)
+          setBreakPauseStartTime(null)
+          if (user) {
+            saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused, false, null, totalBreakTime, false, null)
+          }
+          toast({
+            title: "Break Ended",
+            description: "Break window closed at 10 PM. You can now start tasks",
+          })
+        }
       }
     }, 1000)
 
     return () => clearInterval(timer)
-  }, [activeTaskId, isPaused, user])
+  }, [activeTaskId, isPaused, user, taskTimers, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime])
 
   // Save taskTimers to user-specific localStorage whenever it changes
   useEffect(() => {
     if (user) {
-      saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused)
+      saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime)
     }
-  }, [taskTimers, activeTaskId, isPaused, user])
+  }, [taskTimers, activeTaskId, isPaused, user, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime])
 
   // Check authentication and get user data
   useEffect(() => {
@@ -149,14 +222,29 @@ const EmployeeDashboard = () => {
       localStorage.removeItem(getUserTimerKey(parsedUser.id))
       localStorage.removeItem(getUserActiveTaskKey(parsedUser.id))
       localStorage.removeItem(getUserPausedKey(parsedUser.id))
+      localStorage.removeItem(getUserManualBreakKey(parsedUser.id))
+      localStorage.removeItem(getUserManualBreakStartTimeKey(parsedUser.id))
+      localStorage.removeItem(getUserTotalBreakTimeKey(parsedUser.id))
+      localStorage.removeItem(getUserBreakPausedKey(parsedUser.id))
+      localStorage.removeItem(getUserBreakPauseStartTimeKey(parsedUser.id))
       setTaskTimers({})
       setActiveTaskId(null)
       setIsPaused(false)
+      setIsOnManualBreak(false)
+      setManualBreakStartTime(null)
+      setTotalBreakTime(0)
+      setIsBreakPaused(false)
+      setBreakPauseStartTime(null)
     } else {
       // Load existing timer data for the user
       setTaskTimers(userTimerData.timers)
       setActiveTaskId(userTimerData.activeTaskId)
       setIsPaused(userTimerData.isPaused)
+      setIsOnManualBreak(userTimerData.isOnManualBreak)
+      setManualBreakStartTime(userTimerData.manualBreakStartTime)
+      setTotalBreakTime(userTimerData.totalBreakTime)
+      setIsBreakPaused(userTimerData.isBreakPaused)
+      setBreakPauseStartTime(userTimerData.breakPauseStartTime)
     }
     
     // Update last active date for this user
@@ -262,36 +350,172 @@ const EmployeeDashboard = () => {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
 
+  // Check if current time is within break window (8 PM to 10 PM)
+  const isBreakTimeWindow = () => {
+    const currentHour = currentTime.getHours()
+    return currentHour >= 20 && currentHour < 22
+  }
+
+  // Handle manual break start/stop and pause/resume
+  const handleManualBreak = () => {
+    if (!isOnManualBreak) {
+      // Start manual break - stop any active task first
+      if (activeTaskId) {
+        setActiveTaskId(null)
+        setIsPaused(false)
+      }
+      
+      setIsOnManualBreak(true)
+      setManualBreakStartTime(Date.now())
+      setIsBreakPaused(false)
+      setBreakPauseStartTime(null)
+      if (user) {
+        saveUserTimerData(user.id, taskTimers, null, false, true, Date.now(), totalBreakTime, false, null)
+      }
+      toast({
+        title: "Break Started",
+        description: "All tasks stopped. Break time tracking has started",
+      })
+    } else {
+      // Stop manual break
+      if (manualBreakStartTime && !isBreakPaused) {
+        const breakDuration = Math.floor((Date.now() - manualBreakStartTime) / 1000)
+        setTotalBreakTime(prev => prev + breakDuration)
+      } else if (isBreakPaused && breakPauseStartTime) {
+        // If break was paused, calculate time until pause
+        const timeUntilPause = Math.floor((breakPauseStartTime - manualBreakStartTime) / 1000)
+        setTotalBreakTime(prev => prev + timeUntilPause)
+      }
+      setIsOnManualBreak(false)
+      setManualBreakStartTime(null)
+      setIsBreakPaused(false)
+      setBreakPauseStartTime(null)
+      if (user) {
+        saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused, false, null, totalBreakTime, false, null)
+      }
+      toast({
+        title: "Break Ended",
+        description: "Break time tracking has stopped. You can now start tasks",
+      })
+    }
+  }
+
+  // Handle break pause/resume
+  const handleBreakPause = () => {
+    if (!isOnManualBreak) return
+
+    if (!isBreakPaused) {
+      // Pause break - add current break duration to total
+      if (manualBreakStartTime) {
+        const breakDuration = Math.floor((Date.now() - manualBreakStartTime) / 1000)
+        setTotalBreakTime(prev => prev + breakDuration)
+      }
+      setIsBreakPaused(true)
+      setBreakPauseStartTime(Date.now())
+      if (user) {
+        saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused, isOnManualBreak, manualBreakStartTime, totalBreakTime, true, Date.now())
+      }
+      toast({
+        title: "Break Paused",
+        description: "Break time tracking paused",
+      })
+    } else {
+      // Resume break
+      setIsBreakPaused(false)
+      setManualBreakStartTime(Date.now()) // Reset break start time
+      setBreakPauseStartTime(null)
+      if (user) {
+        saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused, isOnManualBreak, Date.now(), totalBreakTime, false, null)
+      }
+      toast({
+        title: "Break Resumed",
+        description: "Break time tracking resumed",
+      })
+    }
+  }
+
   const startTask = (taskId) => {
+    // Prevent starting tasks during manual break
+    if (isOnManualBreak) {
+      toast({
+        title: "Cannot start task",
+        description: "Please stop your break first before starting a task",
+        variant: "destructive"
+      })
+      return
+    }
+    
     if (activeTaskId && activeTaskId !== taskId) {
       stopCurrentTask()
     }
     setActiveTaskId(taskId)
     setIsPaused(false)
+    if (user) {
+      saveUserTimerData(user.id, taskTimers, taskId, false, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime)
+    }
   }
 
   const pauseTimer = () => {
+    // Prevent pausing during manual break (task should already be stopped)
+    if (isOnManualBreak) {
+      return
+    }
+    
     setIsPaused(true)
+    if (user) {
+      saveUserTimerData(user.id, taskTimers, activeTaskId, true, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime)
+    }
   }
 
   const resumeTimer = () => {
+    // Prevent resuming during manual break
+    if (isOnManualBreak) {
+      toast({
+        title: "Cannot resume task",
+        description: "Please stop your break first before resuming a task",
+        variant: "destructive"
+      })
+      return
+    }
+    
     setIsPaused(false)
+    if (user) {
+      saveUserTimerData(user.id, taskTimers, activeTaskId, false, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime)
+    }
   }
 
   const stopCurrentTask = () => {
     setActiveTaskId(null)
     setIsPaused(false)
+    if (user) {
+      saveUserTimerData(user.id, taskTimers, null, false, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime)
+    }
   }
 
   const stopTask = (taskId) => {
     if (activeTaskId === taskId) {
       setActiveTaskId(null)
       setIsPaused(false)
+      if (user) {
+        saveUserTimerData(user.id, taskTimers, null, false, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime)
+      }
     }
   }
 
   const getTotalTimeSpent = () => {
     return Object.values(taskTimers).reduce((total, time) => total + time, 0)
+  }
+
+  const getCurrentBreakTime = () => {
+    let currentBreakTime = totalBreakTime
+    
+    // Add current active break duration for display
+    if (isOnManualBreak && !isBreakPaused && manualBreakStartTime) {
+      const currentBreakDuration = Math.floor((Date.now() - manualBreakStartTime) / 1000)
+      currentBreakTime += currentBreakDuration
+    }
+    
+    return currentBreakTime
   }
 
   const handleAddTask = () => {
@@ -404,28 +628,82 @@ const EmployeeDashboard = () => {
                       {formatTime(taskTimers[activeTaskId] || 0)}
                     </div>
                     
+                    {isOnManualBreak && (
+                      <Alert className="mb-4 bg-orange-50 border-orange-200">
+                        <Coffee className="h-4 w-4 text-orange-600" />
+                        <AlertDescription className="text-orange-800">
+                          Task controls disabled - You are on manual break
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    
                     <div className="flex justify-center space-x-3">
                       {!isPaused ? (
-                        <Button onClick={pauseTimer} variant="outline" size="sm">
+                        <Button 
+                          onClick={pauseTimer} 
+                          variant="outline" 
+                          size="sm"
+                          disabled={isOnManualBreak}
+                        >
                           <Pause className="w-4 h-4 mr-2" />
                           Pause
                         </Button>
                       ) : (
-                        <Button onClick={resumeTimer} className="bg-green-600 hover:bg-green-700" size="sm">
+                        <Button 
+                          onClick={resumeTimer} 
+                          className="bg-green-600 hover:bg-green-700" 
+                          size="sm"
+                          disabled={isOnManualBreak}
+                        >
                           <Play className="w-4 h-4 mr-2" />
                           Resume
                         </Button>
                       )}
                       
-                      <Button onClick={() => stopTask(activeTaskId)} variant="outline" size="sm">
+                      <Button 
+                        onClick={() => stopTask(activeTaskId)} 
+                        variant="outline" 
+                        size="sm"
+                        disabled={isOnManualBreak}
+                      >
                         <Square className="w-4 h-4 mr-2" />
                         Stop
                       </Button>
                       
-                      <Button variant="outline" size="sm">
-                        <Coffee className="w-4 h-4 mr-2" />
-                        Break
-                      </Button>
+                      {/* Show break controls during break window OR when already on break */}
+                      {(isBreakTimeWindow() || isOnManualBreak) && (
+                        <>
+                          <Button 
+                            onClick={handleManualBreak}
+                            variant={isOnManualBreak ? "destructive" : "outline"} 
+                            size="sm"
+                            className={isOnManualBreak ? "bg-red-600 hover:bg-red-700" : ""}
+                          >
+                            <Coffee className="w-4 h-4 mr-2" />
+                            {isOnManualBreak ? 'Stop Break' : 'Start Break'}
+                          </Button>
+                          
+                          {isOnManualBreak && (
+                            <Button 
+                              onClick={handleBreakPause}
+                              variant="outline" 
+                              size="sm"
+                            >
+                              {isBreakPaused ? (
+                                <>
+                                  <Play className="w-4 h-4 mr-2" />
+                                  Resume Break
+                                </>
+                              ) : (
+                                <>
+                                  <Pause className="w-4 h-4 mr-2" />
+                                  Pause Break
+                                </>
+                              )}
+                            </Button>
+                          )}
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -433,7 +711,91 @@ const EmployeeDashboard = () => {
                 <div className="text-center py-8">
                   <Clock className="w-16 h-16 text-gray-400 mx-auto mb-4" />
                   <h3 className="text-lg font-semibold text-gray-900 mb-2">No Active Task</h3>
-                  <p className="text-gray-600 mb-4">Select a task from below to start tracking time</p>
+                  <p className="text-gray-600 mb-4">
+                    {isOnManualBreak 
+                      ? "Stop your break to start tracking time on tasks" 
+                      : "Select a task from below to start tracking time"
+                    }
+                  </p>
+                  {isOnManualBreak && (
+                    <Alert className="bg-orange-50 border-orange-200 mb-4">
+                      <Coffee className="h-4 w-4 text-orange-600" />
+                      <AlertDescription className="text-orange-800">
+                        You are currently on manual break - Task controls are disabled
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  
+                  {/* Break controls - always show during break window or when on break */}
+                  {(isBreakTimeWindow() || isOnManualBreak) && (
+                    <div className="flex flex-col items-center space-y-3">
+                      {isOnManualBreak && (
+                        <div className="text-center mb-4">
+                          <div className="text-2xl font-mono font-bold text-orange-600 mb-2">
+                            Break Time: {formatTime(getCurrentBreakTime())}
+                          </div>
+                          {isBreakPaused && (
+                            <Badge variant="outline" className="text-orange-600 border-orange-200">
+                              Break Paused
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                      
+                      <div className="flex justify-center space-x-3">
+                        {!isOnManualBreak ? (
+                          <Button 
+                            onClick={handleManualBreak}
+                            variant="outline" 
+                            size="sm"
+                            className="text-orange-600 border-orange-200 hover:bg-orange-50"
+                          >
+                            <Coffee className="w-4 h-4 mr-2" />
+                            Start Break
+                          </Button>
+                        ) : (
+                          <>
+                            <Button 
+                              onClick={handleManualBreak}
+                              variant="destructive" 
+                              size="sm"
+                              className="bg-red-600 hover:bg-red-700"
+                            >
+                              <Square className="w-4 h-4 mr-2" />
+                              Stop Break
+                            </Button>
+                            
+                            <Button 
+                              onClick={handleBreakPause}
+                              variant="outline" 
+                              size="sm"
+                            >
+                              {isBreakPaused ? (
+                                <>
+                                  <Play className="w-4 h-4 mr-2" />
+                                  Resume Break
+                                </>
+                              ) : (
+                                <>
+                                  <Pause className="w-4 h-4 mr-2" />
+                                  Pause Break
+                                </>
+                              )}
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                      
+                      {!isBreakTimeWindow() && isOnManualBreak && (
+                        <Alert className="bg-yellow-50 border-yellow-200 max-w-md">
+                          <AlertCircle className="h-4 w-4 text-yellow-600" />
+                          <AlertDescription className="text-yellow-800">
+                            Break window has ended. Please stop your break.
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>
@@ -505,9 +867,18 @@ const EmployeeDashboard = () => {
                   </Badge>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Break Status</span>
-                  <Badge variant={isPaused ? "outline" : "secondary"}>
-                    {isPaused ? "On Break" : "Working"}
+                  <span className="text-sm text-gray-600">Status</span>
+                  <Badge variant={isOnManualBreak ? (isBreakPaused ? "outline" : "default") : "secondary"}>
+                    {isOnManualBreak 
+                      ? (isBreakPaused ? "Break Paused" : "On Break") 
+                      : (isPaused ? "Task Paused" : "Working")
+                    }
+                  </Badge>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Break Window</span>
+                  <Badge variant={isBreakTimeWindow() ? "default" : "secondary"}>
+                    {isBreakTimeWindow() ? "Available (8-10 PM)" : "Not Available"}
                   </Badge>
                 </div>
                 <div className="flex justify-between">
@@ -659,6 +1030,7 @@ const EmployeeDashboard = () => {
                               variant="outline" 
                               size="sm" 
                               className="flex-1"
+                              disabled={isOnManualBreak}
                             >
                               <Pause className="w-4 h-4 mr-2" />
                               Pause
@@ -668,6 +1040,7 @@ const EmployeeDashboard = () => {
                               onClick={resumeTimer} 
                               size="sm" 
                               className="flex-1 bg-green-600 hover:bg-green-700"
+                              disabled={isOnManualBreak}
                             >
                               <Play className="w-4 h-4 mr-2" />
                               Resume
@@ -677,6 +1050,7 @@ const EmployeeDashboard = () => {
                             onClick={() => stopTask(task.task_id)} 
                             variant="outline" 
                             size="sm"
+                            disabled={isOnManualBreak}
                           >
                             <Square className="w-4 h-4" />
                           </Button>
@@ -686,6 +1060,7 @@ const EmployeeDashboard = () => {
                           onClick={() => startTask(task.task_id)} 
                           size="sm" 
                           className="flex-1 bg-green-600 hover:bg-green-700"
+                          disabled={isOnManualBreak}
                         >
                           <Play className="w-4 h-4 mr-2" />
                           Start Timer
@@ -750,7 +1125,9 @@ const EmployeeDashboard = () => {
                   </div>
                   <div className="flex justify-between">
                     <span>Break Time</span>
-                    <span className="font-semibold">0.5 hours</span>
+                    <span className="font-semibold">
+                      {(getCurrentBreakTime() / 3600).toFixed(1)} hours
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Tasks Started</span>
