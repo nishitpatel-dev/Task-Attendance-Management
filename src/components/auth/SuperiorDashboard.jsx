@@ -56,12 +56,15 @@ const SuperiorDashboard = () => {
   const [user, setUser] = useState(null)
   const [allTasksFromAPI, setAllTasksFromAPI] = useState([])
   const [isLoadingAllTasks, setIsLoadingAllTasks] = useState(false)
+  const [allQueriesFromAPI, setAllQueriesFromAPI] = useState([])
+  const [isLoadingQueries, setIsLoadingQueries] = useState(false)
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
     estimated_hours: ''
   })
   const [queryResponse, setQueryResponse] = useState('')
+  const [activeTab, setActiveTab] = useState('tasks')
   
   const navigate = useNavigate()
   const { toast } = useToast()
@@ -93,9 +96,45 @@ const SuperiorDashboard = () => {
     
     setUser(parsedUser)
     
-    // Fetch initial task count
+    // Fetch initial task count and queries
     fetchAllTasks()
+    fetchAllQueries()
   }, [navigate])
+
+  const fetchAllQueries = async () => {
+    try {
+      setIsLoadingQueries(true)
+      const token = localStorage.getItem('authToken')
+      
+      if (!token) {
+        toast({
+          title: "Authentication Error",
+          description: "Please login again to view queries",
+          variant: "destructive"
+        })
+        return
+      }
+
+      const response = await axios.get('http://localhost:5014/api/Queries', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      console.log('Fetched queries from API:', response.data) // Debug log
+      setAllQueriesFromAPI(response.data)
+    } catch (error) {
+      console.error('Error fetching queries:', error)
+      toast({
+        title: "Error fetching queries",
+        description: "Failed to load queries from server",
+        variant: "destructive"
+      })
+    } finally {
+      setIsLoadingQueries(false)
+    }
+  }
 
   const handleLogout = () => {
     localStorage.removeItem('authToken')
@@ -144,6 +183,10 @@ const SuperiorDashboard = () => {
   const handleAllTasksClick = () => {
     setIsAllTasksModalOpen(true)
     fetchAllTasks()
+  }
+
+  const handleOpenQueriesClick = () => {
+    setActiveTab('queries')
   }
 
   // Show loading if user data is not loaded yet
@@ -279,7 +322,6 @@ const SuperiorDashboard = () => {
       description: "Which UI component library should we use - Material-UI or Tailwind with shadcn/ui?",
       status: "In Progress",
       created_at: "2025-01-13T11:45:00Z",
-      response: null
     }
   ]
 
@@ -289,6 +331,32 @@ const SuperiorDashboard = () => {
     const minutes = Math.floor((seconds % 3600) / 60)
     const secs = seconds % 60
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  }
+
+  // Helper function to format relative time
+  const formatRelativeTime = (dateString) => {
+    const now = new Date()
+    const date = new Date(dateString)
+    const diffInMs = now - date
+    const diffInMinutes = Math.floor(diffInMs / (1000 * 60))
+    const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60))
+    const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24))
+
+    if (diffInMinutes < 1) {
+      return 'Just now'
+    } else if (diffInMinutes < 60) {
+      return `${diffInMinutes} minute${diffInMinutes === 1 ? '' : 's'} ago`
+    } else if (diffInHours < 24) {
+      return `${diffInHours} hour${diffInHours === 1 ? '' : 's'} ago`
+    } else if (diffInDays < 30) {
+      return `${diffInDays} day${diffInDays === 1 ? '' : 's'} ago`
+    } else {
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      })
+    }
   }
 
   const getStatusColor = (status) => {
@@ -358,6 +426,9 @@ const SuperiorDashboard = () => {
 
       // Refresh the all tasks data to update the count in the overview card
       fetchAllTasks()
+      
+      // Also refresh queries in case there are any related to the new task
+      fetchAllQueries()
 
     } catch (error) {
       console.error('Error creating task:', error)
@@ -378,15 +449,61 @@ const SuperiorDashboard = () => {
     setIsAssignTaskOpen(false)
   }
 
-  const handleQueryResponse = () => {
+  const handleQueryResponse = async () => {
     if (!queryResponse.trim()) return
 
-    // In real app, this would call an API
-    console.log('Responding to query:', selectedQueryForResponse.id, queryResponse)
-    
-    setQueryResponse('')
-    setSelectedQueryForResponse(null)
-    setIsQueryResponseOpen(false)
+    try {
+      const token = localStorage.getItem('authToken')
+      const userData = localStorage.getItem('userData')
+      
+      if (!token || !userData) {
+        toast({
+          title: "Authentication Error",
+          description: "Please login again to send response",
+          variant: "destructive"
+        })
+        return
+      }
+
+      const user = JSON.parse(userData)
+      
+      // Prepare the response payload according to API structure
+      const responsePayload = {
+        queryId: selectedQueryForResponse.queryId,
+        repliedBy: user.userId,
+        message: queryResponse.trim()
+      }
+
+      // Call POST API to submit the response
+      const response = await axios.post('http://localhost:5014/api/QueryReplies/reply', responsePayload, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      // Show success toast
+      toast({
+        title: "Response sent successfully",
+        description: `Your response to "${selectedQueryForResponse.subject}" has been sent`,
+      })
+      
+      // Reset form and close modal
+      setQueryResponse('')
+      setSelectedQueryForResponse(null)
+      setIsQueryResponseOpen(false)
+      
+      // Refresh queries to get updated data
+      fetchAllQueries()
+
+    } catch (error) {
+      console.error('Error sending query response:', error)
+      toast({
+        title: "Error sending response",
+        description: "Failed to send response. Please try again.",
+        variant: "destructive"
+      })
+    }
   }
 
   const filteredTasks = allTasks.filter(task => {
@@ -396,18 +513,12 @@ const SuperiorDashboard = () => {
     return true
   })
 
-  const filteredQueries = queries.filter(query => {
-    if (queryFilter !== 'all' && query.status !== queryFilter) return false
-    if (selectedEmployee !== 'all' && query.employee_id !== parseInt(selectedEmployee)) return false
-    return true
-  })
-
   const totalEmployees = employees.length
   const activeEmployees = employees.filter(emp => emp.status === 'Working').length
   const completedEmployees = employees.filter(emp => emp.status === 'Complete').length
   const totalTasks = allTasks.length
   const completedTasks = allTasks.filter(task => task.status === 'Completed').length
-  const openQueries = queries.filter(query => query.status === 'Open').length
+  const totalQueries = allQueriesFromAPI.length
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 p-4 lg:p-6">
@@ -500,12 +611,15 @@ const SuperiorDashboard = () => {
             </CardContent>
           </Card>
 
-          <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
+          <Card 
+            className="shadow-lg border-0 bg-white/80 backdrop-blur-sm cursor-pointer hover:shadow-xl transition-shadow"
+            onClick={handleOpenQueriesClick}
+          >
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-600">Open Queries</p>
-                  <p className="text-2xl font-bold text-orange-600">{openQueries}</p>
+                  <p className="text-sm font-medium text-gray-600">All Queries</p>
+                  <p className="text-2xl font-bold text-orange-600">{totalQueries}</p>
                 </div>
                 <div className="p-3 bg-orange-100 rounded-full">
                   <MessageSquare className="w-6 h-6 text-orange-600" />
@@ -571,7 +685,7 @@ const SuperiorDashboard = () => {
         </Card>
 
         {/* Main Tabs */}
-        <Tabs defaultValue="tasks" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="grid w-full grid-cols-2 lg:w-auto lg:grid-cols-2">
             <TabsTrigger value="tasks" className="flex items-center space-x-2">
               <ClipboardList className="w-4 h-4" />
@@ -667,84 +781,66 @@ const SuperiorDashboard = () => {
                   <Filter className="w-4 h-4 mr-2" />
                   Filter
                 </Button>
-                <Button variant="outline" size="sm">
-                  <Download className="w-4 h-4 mr-2" />
-                  Export
-                </Button>
               </div>
             </div>
 
             <div className="grid gap-4">
-              {queries.map(query => (
-                <Card key={query.id} className="shadow-md border-0 bg-white/80 backdrop-blur-sm">
-                  <CardContent className="p-6">
-                    <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-3 mb-2">
-                          <h3 className="text-lg font-semibold text-gray-900">{query.subject}</h3>
-                          <Badge className={
-                            query.priority === 'High' ? 'bg-red-100 text-red-800' :
-                            query.priority === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
-                            'bg-green-100 text-green-800'
-                          } variant="outline">
-                            {query.priority}
-                          </Badge>
-                          <Badge className={
-                            query.status === 'Resolved' ? 'bg-green-100 text-green-800' :
-                            query.status === 'In Progress' ? 'bg-blue-100 text-blue-800' :
-                            'bg-orange-100 text-orange-800'
-                          } variant="outline">
-                            {query.status}
-                          </Badge>
-                        </div>
-                        
-                        <div className="mb-3">
-                          <span className="font-medium text-gray-700">From: </span>
-                          <span className="text-gray-600">{query.employee_name}</span>
-                          <span className="mx-2 text-gray-400">•</span>
-                          <span className="text-sm text-gray-500">{new Date(query.created_at).toLocaleDateString()}</span>
-                        </div>
-                        
-                        <p className="text-gray-600 mb-3">{query.description}</p>
-                        
-                        {query.response && (
-                          <div className="bg-blue-50 p-3 rounded-lg">
-                            <span className="font-medium text-blue-900">Your Response:</span>
-                            <p className="text-blue-700 mt-1">{query.response}</p>
+              {isLoadingQueries ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="ml-3 text-gray-600">Loading queries...</span>
+                </div>
+              ) : allQueriesFromAPI.length === 0 ? (
+                <div className="text-center py-12">
+                  <MessageSquare className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">No Queries Found</h3>
+                  <p className="text-gray-600 mb-4">No employee queries have been submitted yet.</p>
+                </div>
+              ) : (
+                allQueriesFromAPI.map(query => (
+                  <Card key={query.queryId} className="shadow-md border-0 bg-white/80 backdrop-blur-sm">
+                    <CardContent className="p-6">
+                      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-3 mb-2">
+                            <h3 className="text-lg font-semibold text-gray-900">{query.subject}</h3>
+                            <Badge variant={query.status === 'Open' ? "destructive" : query.status === 'Resolved' ? "default" : "outline"}>
+                              {query.status}
+                            </Badge>
                           </div>
-                        )}
-                      </div>
-                      
-                      <div className="flex space-x-2">
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => {
-                            setSelectedQueryForResponse(query)
-                            setIsQueryResponseOpen(true)
-                          }}
-                        >
-                          <MessageSquare className="w-4 h-4 mr-1" />
-                          Reply
-                        </Button>
-                        {query.status === 'Open' && (
+                          
+                          <p className="text-gray-600 mb-3">{query.description}</p>
+                          
+                          <div className="mb-3">
+                            <span className="text-sm text-gray-500">{formatRelativeTime(query.raisedAt)}</span>
+                          </div>
+                          
+                          {query.queryReplies && query.queryReplies.length > 0 && (
+                            <div className="bg-blue-50 p-3 rounded-lg">
+                              <span className="font-medium text-blue-900">Latest Response:</span>
+                              <p className="text-blue-700 mt-1">{query.queryReplies[query.queryReplies.length - 1].replyText}</p>
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="flex space-x-2">
                           <Button 
                             variant="outline" 
                             size="sm"
                             onClick={() => {
-                              // Mark query as resolved
-                              console.log('Resolving query:', query.id)
+                              setSelectedQueryForResponse(query)
+                              setIsQueryResponseOpen(true)
                             }}
                           >
-                            <CheckCircle className="w-4 h-4 mr-1" />
-                            Resolve
+                            <MessageSquare className="w-4 h-4 mr-1" />
+                            Reply
                           </Button>
-                        )}
+                        </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                ))
+              )}
             </div>
           </TabsContent>
         </Tabs>
@@ -819,6 +915,9 @@ const SuperiorDashboard = () => {
                 <div className="bg-gray-50 p-3 rounded-lg">
                   <h4 className="font-medium text-gray-900">{selectedQueryForResponse.subject}</h4>
                   <p className="text-sm text-gray-600 mt-1">{selectedQueryForResponse.description}</p>
+                  <div className="text-xs text-gray-500 mt-2">
+                    <span>{formatRelativeTime(selectedQueryForResponse.raisedAt)}</span>
+                  </div>
                 </div>
               )}
               
