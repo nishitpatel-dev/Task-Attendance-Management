@@ -249,6 +249,9 @@ const EmployeeDashboard = () => {
     
     // Update last active date for this user
     localStorage.setItem(getUserLastActiveDateKey(parsedUser.id), today)
+    
+    // Trigger initial tasks fetch
+    setIsLoadingTasks(true)
   }, [navigate])
 
   // Fetch tasks from API
@@ -293,11 +296,11 @@ const EmployeeDashboard = () => {
       }
     }
 
-    // Only fetch tasks if user is loaded
-    if (user) {
+    // Only fetch tasks if user is loaded and isLoadingTasks is true
+    if (user && isLoadingTasks) {
       fetchTasks()
     }
-  }, [user, toast])
+  }, [user, toast, isLoadingTasks])
 
   const handleLogout = () => {
     localStorage.removeItem('authToken')
@@ -518,35 +521,65 @@ const EmployeeDashboard = () => {
     return currentBreakTime
   }
 
-  const handleAddTask = () => {
+  const handleAddTask = async () => {
     if (!newTask.title.trim() || !newTask.description.trim() || !newTask.estimated_hours) {
       return
     }
 
-    // Create task in the same format as API response
-    const taskToAdd = {
-      task_id: tasks.length > 0 ? Math.max(...tasks.map(t => t.task_id), 0) + 1 : 1,
-      title: newTask.title.trim(),
-      description: newTask.description.trim(),
-      estimated_hours: parseFloat(newTask.estimated_hours),
-      assigned_by: user?.id || 0,
-      is_public: false,
-      created_at: new Date().toISOString()
-    }
+    try {
+      const token = localStorage.getItem('authToken')
+      
+      if (!token) {
+        toast({
+          title: "Authentication Error",
+          description: "Please login again to add tasks",
+          variant: "destructive"
+        })
+        return
+      }
 
-    setTasks(prev => [...prev, taskToAdd])
-    setNewTask({
-      title: '',
-      description: '',
-      estimated_hours: '',
-      assigned_by: ''
-    })
-    setIsAddTaskOpen(false)
-    
-    toast({
-      title: "Task added successfully",
-      description: `Task "${taskToAdd.title}" has been added to your list`,
-    })
+      // Prepare task object according to API structure
+      const taskPayload = {
+        title: newTask.title.trim(),
+        description: newTask.description.trim(),
+        estimatedHours: parseFloat(newTask.estimated_hours),
+        assignedBy: 2 // Default value as requested
+      }
+
+      // Call POST API
+      const response = await axios.post('http://localhost:5014/api/Task', taskPayload, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      // Reset form
+      setNewTask({
+        title: '',
+        description: '',
+        estimated_hours: '',
+        assigned_by: ''
+      })
+      setIsAddTaskOpen(false)
+      
+      // Show success toast
+      toast({
+        title: "Task added successfully",
+        description: `Task "${taskPayload.title}" has been added to your list`,
+      })
+
+      // Trigger re-fetch by updating loading state
+      setIsLoadingTasks(true)
+
+    } catch (error) {
+      console.error('Error adding task:', error)
+      toast({
+        title: "Error adding task",
+        description: "Failed to add task to server. Please try again.",
+        variant: "destructive"
+      })
+    }
   }
 
   const handleCancelAddTask = () => {
