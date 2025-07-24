@@ -51,8 +51,11 @@ const SuperiorDashboard = () => {
   const [searchQuery, setSearchQuery] = useState('')
   const [isAssignTaskOpen, setIsAssignTaskOpen] = useState(false)
   const [isQueryResponseOpen, setIsQueryResponseOpen] = useState(false)
+  const [isAllTasksModalOpen, setIsAllTasksModalOpen] = useState(false)
   const [selectedQueryForResponse, setSelectedQueryForResponse] = useState(null)
   const [user, setUser] = useState(null)
+  const [allTasksFromAPI, setAllTasksFromAPI] = useState([])
+  const [isLoadingAllTasks, setIsLoadingAllTasks] = useState(false)
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
@@ -89,6 +92,9 @@ const SuperiorDashboard = () => {
     }
     
     setUser(parsedUser)
+    
+    // Fetch initial task count
+    fetchAllTasks()
   }, [navigate])
 
   const handleLogout = () => {
@@ -99,6 +105,45 @@ const SuperiorDashboard = () => {
       description: "You have been logged out of your account",
     })
     navigate('/', { replace: true })
+  }
+
+  const fetchAllTasks = async () => {
+    try {
+      setIsLoadingAllTasks(true)
+      const token = localStorage.getItem('authToken')
+      
+      if (!token) {
+        toast({
+          title: "Authentication Error",
+          description: "Please login again to view tasks",
+          variant: "destructive"
+        })
+        return
+      }
+
+      const response = await axios.get('http://localhost:5014/api/Task', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      setAllTasksFromAPI(response.data)
+    } catch (error) {
+      console.error('Error fetching all tasks:', error)
+      toast({
+        title: "Error fetching tasks",
+        description: "Failed to load tasks from server",
+        variant: "destructive"
+      })
+    } finally {
+      setIsLoadingAllTasks(false)
+    }
+  }
+
+  const handleAllTasksClick = () => {
+    setIsAllTasksModalOpen(true)
+    fetchAllTasks()
   }
 
   // Show loading if user data is not loaded yet
@@ -421,15 +466,18 @@ const SuperiorDashboard = () => {
             </CardContent>
           </Card>
 
-          <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
+          <Card 
+            className="shadow-lg border-0 bg-white/80 backdrop-blur-sm cursor-pointer hover:shadow-xl transition-shadow"
+            onClick={handleAllTasksClick}
+          >
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-600">Active Now</p>
-                  <p className="text-2xl font-bold text-green-600">{activeEmployees}</p>
+                  <p className="text-sm font-medium text-gray-600">All Tasks</p>
+                  <p className="text-2xl font-bold text-green-600">{allTasksFromAPI.length}</p>
                 </div>
                 <div className="p-3 bg-green-100 rounded-full">
-                  <UserCheck className="w-6 h-6 text-green-600" />
+                  <ClipboardList className="w-6 h-6 text-green-600" />
                 </div>
               </div>
             </CardContent>
@@ -800,6 +848,74 @@ const SuperiorDashboard = () => {
                   Send Response
                 </Button>
               </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* All Tasks Modal */}
+        <Dialog open={isAllTasksModalOpen} onOpenChange={setIsAllTasksModalOpen}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
+            <DialogHeader>
+              <DialogTitle className="flex items-center space-x-2">
+                <ClipboardList className="w-5 h-5 text-blue-600" />
+                <span>All Tasks</span>
+              </DialogTitle>
+            </DialogHeader>
+            <div className="overflow-y-auto max-h-[60vh]">
+              {isLoadingAllTasks ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="ml-3 text-gray-600">Loading tasks...</span>
+                </div>
+              ) : allTasksFromAPI.length === 0 ? (
+                <div className="text-center py-8">
+                  <ClipboardList className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">No Tasks Found</h3>
+                  <p className="text-gray-600">No tasks have been created yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {allTasksFromAPI.map(task => (
+                    <Card key={task.taskId} className="border border-gray-200">
+                      <CardContent className="p-4">
+                        <div className="space-y-3">
+                          <div>
+                            <h3 className="text-lg font-semibold text-gray-900">{task.title}</h3>
+                            <p className="text-gray-600 mt-1">{task.description}</p>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <span className="font-medium text-gray-700">Estimated Hours:</span>
+                              <span className="text-gray-600 ml-2">{task.estimatedHours}h</span>
+                            </div>
+                            <div>
+                              <span className="font-medium text-gray-700">Created At:</span>
+                              <span className="text-gray-600 ml-2">
+                                {new Date(task.createdAt).toLocaleDateString('en-US', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end pt-4">
+              <Button 
+                variant="outline" 
+                onClick={() => setIsAllTasksModalOpen(false)}
+              >
+                Close
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
