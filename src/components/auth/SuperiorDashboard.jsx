@@ -356,6 +356,9 @@ const SuperiorDashboard = () => {
         description: `Task "${taskPayload.title}" has been created successfully`,
       })
 
+      // Refresh the all tasks data to update the count in the overview card
+      fetchAllTasks()
+
     } catch (error) {
       console.error('Error creating task:', error)
       toast({
