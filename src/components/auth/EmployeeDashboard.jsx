@@ -55,6 +55,14 @@ const EmployeeDashboard = () => {
   })
   const [tasks, setTasks] = useState([])
   const [isLoadingTasks, setIsLoadingTasks] = useState(true)
+  const [queries, setQueries] = useState([])
+  const [isLoadingQueries, setIsLoadingQueries] = useState(true)
+  const [isQueryModalOpen, setIsQueryModalOpen] = useState(false)
+  const [selectedTaskForQuery, setSelectedTaskForQuery] = useState(null)
+  const [queryForm, setQueryForm] = useState({
+    subject: '',
+    description: ''
+  })
 
   const navigate = useNavigate()
   const { toast } = useToast()
@@ -250,8 +258,9 @@ const EmployeeDashboard = () => {
     // Update last active date for this user
     localStorage.setItem(getUserLastActiveDateKey(parsedUser.id), today)
     
-    // Trigger initial tasks fetch
+    // Trigger initial tasks and queries fetch
     setIsLoadingTasks(true)
+    setIsLoadingQueries(true)
   }, [navigate])
 
   // Fetch tasks from API
@@ -302,6 +311,61 @@ const EmployeeDashboard = () => {
     }
   }, [user, toast, isLoadingTasks])
 
+  // Fetch queries from API
+  useEffect(() => {
+    const fetchQueries = async () => {
+      try {
+        setIsLoadingQueries(true)
+        const token = localStorage.getItem('authToken')
+        const userData = localStorage.getItem('userData')
+        
+        if (!token || !userData) {
+          return
+        }
+
+        // Parse user data to get current user ID
+        const parsedUser = JSON.parse(userData)
+        const currentUserId = parsedUser.userId || parsedUser.id || parsedUser.ID
+
+        console.log('Current User ID:', currentUserId, 'Type:', typeof currentUserId) // Debug log
+        console.log('Full user data:', parsedUser) // Debug log
+
+        const response = await axios.get('http://localhost:5014/api/Queries', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        })
+
+        console.log('All queries from API:', response.data) // Debug log
+
+        // Filter queries to show only those raised by the current user
+        const userQueries = response.data.filter(query => {
+          console.log(`Query ${query.queryId}: raisedBy=${query.raisedBy} (type: ${typeof query.raisedBy}), currentUserId=${currentUserId} (type: ${typeof currentUserId})`) // Debug log
+          // Handle both string and number comparisons
+          return query.raisedBy == currentUserId || query.raisedBy === currentUserId
+        })
+
+        console.log('Filtered user queries:', userQueries) // Debug log
+        setQueries(userQueries)
+      } catch (error) {
+        console.error('Error fetching queries:', error)
+        toast({
+          title: "Error fetching queries",
+          description: "Failed to load queries from server",
+          variant: "destructive"
+        })
+      } finally {
+        setIsLoadingQueries(false)
+      }
+    }
+
+    // Only fetch queries if user is loaded and isLoadingQueries is true
+    if (user && isLoadingQueries) {
+      fetchQueries()
+    }
+  }, [user, toast, isLoadingQueries])
+
   const handleLogout = () => {
     localStorage.removeItem('authToken')
     localStorage.removeItem('userData')
@@ -314,36 +378,21 @@ const EmployeeDashboard = () => {
     navigate('/', { replace: true })
   }
 
-  // Show loading if user data or tasks are not loaded yet
-  if (!user || isLoadingTasks) {
+  // Show loading if user data or tasks/queries are not loaded yet
+  if (!user || isLoadingTasks || isLoadingQueries) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-600">
-            {!user ? 'Loading user data...' : 'Loading tasks...'}
+            {!user ? 'Loading user data...' : 
+             isLoadingTasks ? 'Loading tasks...' : 
+             'Loading queries...'}
           </p>
         </div>
       </div>
     )
   }
-
-  const mockQueries = [
-    {
-      id: 1,
-      taskTitle: "Implement User Authentication",
-      subject: "Clarification on JWT implementation",
-      status: "Open",
-      createdAt: "2 hours ago"
-    },
-    {
-      id: 2,
-      taskTitle: "Design Database Schema",
-      subject: "Database relationships question",
-      status: "Resolved",
-      createdAt: "1 day ago"
-    }
-  ]
 
   const formatTime = (seconds) => {
     if (!seconds) return "00:00:00"
@@ -351,6 +400,32 @@ const EmployeeDashboard = () => {
     const minutes = Math.floor((seconds % 3600) / 60)
     const secs = seconds % 60
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  }
+
+  // Helper function to format relative time
+  const formatRelativeTime = (dateString) => {
+    const now = new Date()
+    const date = new Date(dateString)
+    const diffInMs = now - date
+    const diffInMinutes = Math.floor(diffInMs / (1000 * 60))
+    const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60))
+    const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24))
+
+    if (diffInMinutes < 1) {
+      return 'Just now'
+    } else if (diffInMinutes < 60) {
+      return `${diffInMinutes} minute${diffInMinutes === 1 ? '' : 's'} ago`
+    } else if (diffInHours < 24) {
+      return `${diffInHours} hour${diffInHours === 1 ? '' : 's'} ago`
+    } else if (diffInDays < 30) {
+      return `${diffInDays} day${diffInDays === 1 ? '' : 's'} ago`
+    } else {
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      })
+    }
   }
 
   // Check if current time is within break window (8 PM to 10 PM)
@@ -590,6 +665,103 @@ const EmployeeDashboard = () => {
       assigned_by: ''
     })
     setIsAddTaskOpen(false)
+  }
+
+  const handleOpenQueryModal = (task) => {
+    setSelectedTaskForQuery(task)
+    setIsQueryModalOpen(true)
+    setQueryForm({
+      subject: '',
+      description: ''
+    })
+  }
+
+  const handleSubmitQuery = async () => {
+    if (!queryForm.subject.trim() || !queryForm.description.trim() || !selectedTaskForQuery) {
+      return
+    }
+
+    try {
+      const token = localStorage.getItem('authToken')
+      const userData = localStorage.getItem('userData')
+      
+      if (!token || !userData) {
+        toast({
+          title: "Authentication Error",
+          description: "Please login again to submit queries",
+          variant: "destructive"
+        })
+        return
+      }
+
+      const parsedUser = JSON.parse(userData)
+      
+      // Debug: Check user data structure
+      console.log('User data from localStorage:', parsedUser)
+      
+      // Get user ID with fallback options
+      const userId = parsedUser.userId || parsedUser.id || parsedUser.ID
+      
+      if (!userId) {
+        console.error('No user ID found in localStorage userData:', parsedUser)
+        toast({
+          title: "Error submitting query",
+          description: "User ID not found. Please try logging in again.",
+          variant: "destructive"
+        })
+        return
+      }
+      
+      // Prepare query object according to API structure
+      const queryPayload = {
+        taskId: selectedTaskForQuery.task_id,
+        raisedBy: userId,
+        subject: queryForm.subject.trim(),
+        description: queryForm.description.trim()
+      }
+
+      // Call POST API
+      const response = await axios.post('http://localhost:5014/api/Queries', queryPayload, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      // Reset form and close modal
+      setQueryForm({
+        subject: '',
+        description: ''
+      })
+      setSelectedTaskForQuery(null)
+      setIsQueryModalOpen(false)
+      
+      // Show success toast
+      toast({
+        title: "Query submitted successfully",
+        description: `Your query "${queryPayload.subject}" has been submitted for review`,
+      })
+
+      // Trigger re-fetch queries to get updated data
+      setIsLoadingQueries(true)
+
+    } catch (error) {
+      console.error('Error submitting query:', error)
+      toast({
+        title: "Error submitting query",
+        description: "Failed to submit query to server. Please try again.",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleCancelQuery = () => {
+    setQueryForm({
+      subject: '',
+      description: ''
+    })
+    setSelectedTaskForQuery(null)
+    setIsQueryModalOpen(false)
   }
 
   const totalHoursToday = getTotalTimeSpent() / 3600
@@ -1100,7 +1272,11 @@ const EmployeeDashboard = () => {
                         </Button>
                       )}
                       
-                      <Button variant="outline" size="sm">
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => handleOpenQueryModal(task)}
+                      >
                         <MessageSquare className="w-4 h-4 mr-2" />
                         Query
                       </Button>
@@ -1115,31 +1291,37 @@ const EmployeeDashboard = () => {
           <TabsContent value="queries" className="space-y-4">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-semibold text-gray-900">My Queries</h2>
-              <Button size="sm" className="bg-blue-600 hover:bg-blue-700">
-                <Plus className="w-4 h-4 mr-2" />
-                Raise Query
-              </Button>
             </div>
             
             <div className="space-y-4">
-              {mockQueries.map(query => (
-                <Card key={query.id} className="shadow-md border-0 bg-white/80 backdrop-blur-sm">
-                  <CardContent className="p-4">
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <h3 className="font-semibold text-gray-900">{query.subject}</h3>
-                        <p className="text-sm text-gray-600">Task: {query.taskTitle}</p>
+              {queries.length === 0 ? (
+                <div className="text-center py-12">
+                  <MessageSquare className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">No Queries Found</h3>
+                  <p className="text-gray-600 mb-4">You haven't raised any queries yet. Use the Query button on tasks to ask questions.</p>
+                </div>
+              ) : (
+                queries.map(query => (
+                  <Card key={query.queryId} className="shadow-md border-0 bg-white/80 backdrop-blur-sm">
+                    <CardContent className="p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex-1">
+                          <h3 className="font-semibold text-gray-900 mb-2">{query.subject}</h3>
+                          <p className="text-sm text-gray-600">{query.description}</p>
+                        </div>
+                        <div className="flex flex-col items-end space-y-2">
+                          <Badge variant={query.status === 'Open' ? "destructive" : query.status === 'Resolved' ? "default" : "outline"}>
+                            {query.status}
+                          </Badge>
+                          <span className="text-xs text-gray-500">
+                            {formatRelativeTime(query.raisedAt)}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <Badge variant={query.status === 'Open' ? "destructive" : "default"}>
-                          {query.status}
-                        </Badge>
-                        <span className="text-xs text-gray-500">{query.createdAt}</span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                ))
+              )}
             </div>
           </TabsContent>
 
@@ -1205,6 +1387,65 @@ const EmployeeDashboard = () => {
             </div>
           </TabsContent>
         </Tabs>
+
+        {/* Query Modal */}
+        <Dialog open={isQueryModalOpen} onOpenChange={setIsQueryModalOpen}>
+          <DialogContent className="sm:max-w-[525px]">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-semibold text-gray-900">
+                Raise Query
+              </DialogTitle>
+              <DialogDescription className="text-gray-600">
+                {selectedTaskForQuery && (
+                  <>Submit a query for task: <span className="font-medium text-gray-900">"{selectedTaskForQuery.title}"</span></>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="subject" className="text-sm font-medium text-gray-700">
+                  Subject *
+                </Label>
+                <Input
+                  id="subject"
+                  value={queryForm.subject}
+                  onChange={(e) => setQueryForm(prev => ({...prev, subject: e.target.value}))}
+                  placeholder="Enter query subject"
+                  className="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="queryDescription" className="text-sm font-medium text-gray-700">
+                  Description *
+                </Label>
+                <Textarea
+                  id="queryDescription"
+                  value={queryForm.description}
+                  onChange={(e) => setQueryForm(prev => ({...prev, description: e.target.value}))}
+                  placeholder="Enter query description"
+                  className="focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[100px]"
+                />
+              </div>
+            </div>
+            <DialogFooter className="gap-2">
+              <Button 
+                variant="outline" 
+                onClick={handleCancelQuery}
+                className="hover:bg-gray-50"
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleSubmitQuery}
+                className="bg-blue-600 hover:bg-blue-700"
+                disabled={!queryForm.subject.trim() || !queryForm.description.trim()}
+              >
+                Submit Query
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )
