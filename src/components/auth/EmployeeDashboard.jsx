@@ -54,20 +54,70 @@ const EmployeeDashboard = () => {
   const navigate = useNavigate()
   const { toast } = useToast()
 
+  // Helper functions for user-specific timer data
+  const getUserTimerKey = (userId) => `taskTimers_${userId}`
+  const getUserActiveTaskKey = (userId) => `activeTaskId_${userId}`
+  const getUserPausedKey = (userId) => `isPaused_${userId}`
+  const getUserLastActiveDateKey = (userId) => `lastActiveDate_${userId}`
+
+  const loadUserTimerData = (userId) => {
+    const savedTimers = localStorage.getItem(getUserTimerKey(userId))
+    const savedActiveTaskId = localStorage.getItem(getUserActiveTaskKey(userId))
+    const savedIsPaused = localStorage.getItem(getUserPausedKey(userId))
+    
+    return {
+      timers: savedTimers ? JSON.parse(savedTimers) : {},
+      activeTaskId: savedActiveTaskId ? parseInt(savedActiveTaskId) : null,
+      isPaused: savedIsPaused === 'true'
+    }
+  }
+
+  const saveUserTimerData = (userId, timers, activeTaskId, isPaused) => {
+    localStorage.setItem(getUserTimerKey(userId), JSON.stringify(timers))
+    
+    if (activeTaskId !== null) {
+      localStorage.setItem(getUserActiveTaskKey(userId), activeTaskId.toString())
+    } else {
+      localStorage.removeItem(getUserActiveTaskKey(userId))
+    }
+    
+    localStorage.setItem(getUserPausedKey(userId), isPaused.toString())
+  }
+
+  // Optional: Function to clear all timer data for a user (for admin use or reset)
+  const clearUserTimerData = (userId) => {
+    localStorage.removeItem(getUserTimerKey(userId))
+    localStorage.removeItem(getUserActiveTaskKey(userId))
+    localStorage.removeItem(getUserPausedKey(userId))
+    localStorage.removeItem(getUserLastActiveDateKey(userId))
+  }
+
   // Timer effect for current time and task timers
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date())
-      if (activeTaskId && !isPaused) {
-        setTaskTimers(prev => ({
-          ...prev,
-          [activeTaskId]: (prev[activeTaskId] || 0) + 1
-        }))
+      if (activeTaskId && !isPaused && user) {
+        setTaskTimers(prev => {
+          const newTimers = {
+            ...prev,
+            [activeTaskId]: (prev[activeTaskId] || 0) + 1
+          }
+          // Save to user-specific localStorage
+          saveUserTimerData(user.id, newTimers, activeTaskId, isPaused)
+          return newTimers
+        })
       }
     }, 1000)
 
     return () => clearInterval(timer)
-  }, [activeTaskId, isPaused])
+  }, [activeTaskId, isPaused, user])
+
+  // Save taskTimers to user-specific localStorage whenever it changes
+  useEffect(() => {
+    if (user) {
+      saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused)
+    }
+  }, [taskTimers, activeTaskId, isPaused, user])
 
   // Check authentication and get user data
   useEffect(() => {
@@ -86,6 +136,31 @@ const EmployeeDashboard = () => {
     }
     
     setUser(parsedUser)
+
+    // Load user-specific timer data
+    const userTimerData = loadUserTimerData(parsedUser.id)
+    
+    // Check if it's a new day and clear timer data if needed
+    const lastActiveDate = localStorage.getItem(getUserLastActiveDateKey(parsedUser.id))
+    const today = new Date().toDateString()
+    
+    if (lastActiveDate && lastActiveDate !== today) {
+      // New day detected, clear user-specific timer data
+      localStorage.removeItem(getUserTimerKey(parsedUser.id))
+      localStorage.removeItem(getUserActiveTaskKey(parsedUser.id))
+      localStorage.removeItem(getUserPausedKey(parsedUser.id))
+      setTaskTimers({})
+      setActiveTaskId(null)
+      setIsPaused(false)
+    } else {
+      // Load existing timer data for the user
+      setTaskTimers(userTimerData.timers)
+      setActiveTaskId(userTimerData.activeTaskId)
+      setIsPaused(userTimerData.isPaused)
+    }
+    
+    // Update last active date for this user
+    localStorage.setItem(getUserLastActiveDateKey(parsedUser.id), today)
   }, [navigate])
 
   // Fetch tasks from API
@@ -139,6 +214,8 @@ const EmployeeDashboard = () => {
   const handleLogout = () => {
     localStorage.removeItem('authToken')
     localStorage.removeItem('userData')
+    // Note: We do NOT clear user-specific timer data on logout anymore
+    // Timer data persists across login sessions for each user
     toast({
       title: "Logged out successfully",
       description: "You have been logged out of your account",
