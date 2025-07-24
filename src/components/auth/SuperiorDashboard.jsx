@@ -553,6 +553,11 @@ const SuperiorDashboard = () => {
     return true
   })
 
+  const filteredQueries = allQueriesFromAPI.filter(query => {
+    if (queryFilter !== 'all' && query.status !== queryFilter) return false
+    return true
+  })
+
   const totalEmployees = allEmployeesFromAPI.length
   const activeEmployees = employees.filter(emp => emp.status === 'Working').length
   const completedEmployees = employees.filter(emp => emp.status === 'Complete').length
@@ -825,10 +830,17 @@ const SuperiorDashboard = () => {
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
               <h2 className="text-xl font-semibold text-gray-900">Employee Queries</h2>
               <div className="flex space-x-2">
-                <Button variant="outline" size="sm">
-                  <Filter className="w-4 h-4 mr-2" />
-                  Filter
-                </Button>
+                <Select value={queryFilter} onValueChange={setQueryFilter}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue placeholder="Filter by status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Queries</SelectItem>
+                    <SelectItem value="Open">Open</SelectItem>
+                    <SelectItem value="In Progress">In Progress</SelectItem>
+                    <SelectItem value="Resolved">Resolved</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
@@ -844,8 +856,14 @@ const SuperiorDashboard = () => {
                   <h3 className="text-lg font-semibold text-gray-900 mb-2">No Queries Found</h3>
                   <p className="text-gray-600 mb-4">No employee queries have been submitted yet.</p>
                 </div>
+              ) : filteredQueries.length === 0 ? (
+                <div className="text-center py-12">
+                  <MessageSquare className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">No Queries Found</h3>
+                  <p className="text-gray-600 mb-4">No queries match the selected filter.</p>
+                </div>
               ) : (
-                allQueriesFromAPI.map(query => (
+                filteredQueries.map(query => (
                   <Card key={query.queryId} className="shadow-md border-0 bg-white/80 backdrop-blur-sm">
                     <CardContent className="p-6">
                       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
