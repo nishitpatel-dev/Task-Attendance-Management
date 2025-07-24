@@ -1,12 +1,15 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useNavigate } from 'react-router-dom'
 import * as z from 'zod'
+import axios from 'axios'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Clock, Eye, EyeOff } from 'lucide-react'
+import { useToast } from '@/hooks/use-toast'
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -16,6 +19,20 @@ const loginSchema = z.object({
 const Login = () => {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const navigate = useNavigate()
+  const { toast } = useToast()
+
+  // Check if user is already logged in
+  useEffect(() => {
+    const token = localStorage.getItem('authToken')
+    const userData = localStorage.getItem('userData')
+    
+    if (token && userData) {
+      const user = JSON.parse(userData)
+      const redirectPath = user.role === 'employee' ? '/employee' : '/superior'
+      navigate(redirectPath, { replace: true })
+    }
+  }, [navigate])
 
   const form = useForm({
     resolver: zodResolver(loginSchema),
@@ -27,11 +44,54 @@ const Login = () => {
 
   const onSubmit = async (data) => {
     setIsLoading(true)
-    setTimeout(() => {
-      console.log('Login data:', data)
+    try {
+      const response = await axios.post('http://localhost:5014/api/Login', {
+        email: data.email,
+        password: data.password
+      })
+
+      if (response.data && response.data.token && response.data.user) {
+        // Store token and user data in localStorage
+        localStorage.setItem('authToken', response.data.token)
+        localStorage.setItem('userData', JSON.stringify(response.data.user))
+        
+        // Show success message
+        toast({
+          title: "Login Successful",
+          description: `Welcome back, ${response.data.user.name}!`,
+        })
+        
+        // Navigate based on role
+        const redirectPath = response.data.user.role === 'employee' ? '/employee' : '/superior'
+        navigate(redirectPath, { replace: true })
+      } else {
+        toast({
+          title: "Login Failed",
+          description: "Invalid response from server",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error('Login error:', error)
+      
+      let errorMessage = 'An unexpected error occurred'
+      
+      if (error.response) {
+        // Server responded with error status
+        errorMessage = error.response.data?.message || 'Login failed. Please check your credentials.'
+      } else if (error.request) {
+        // Network error
+        errorMessage = 'Network error. Please check your connection and try again.'
+      }
+      
+      toast({
+        title: "Login Failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
       setIsLoading(false)
-      form.reset()
-    }, 2000)
+    }
   }
 
   return (

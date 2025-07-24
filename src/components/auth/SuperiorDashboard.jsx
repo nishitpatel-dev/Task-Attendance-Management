@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -12,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import { useToast } from '@/hooks/use-toast'
 import { 
   Clock, 
   Play, 
@@ -36,7 +38,8 @@ import {
   ClipboardList,
   BarChart3,
   Send,
-  Download
+  Download,
+  LogOut
 } from 'lucide-react'
 
 const SuperiorDashboard = () => {
@@ -48,12 +51,66 @@ const SuperiorDashboard = () => {
   const [isAssignTaskOpen, setIsAssignTaskOpen] = useState(false)
   const [isQueryResponseOpen, setIsQueryResponseOpen] = useState(false)
   const [selectedQueryForResponse, setSelectedQueryForResponse] = useState(null)
+  const [user, setUser] = useState(null)
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
     estimated_hours: ''
   })
   const [queryResponse, setQueryResponse] = useState('')
+  
+  const navigate = useNavigate()
+  const { toast } = useToast()
+
+  // Timer effect for current time
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [])
+
+  // Check authentication and get user data
+  useEffect(() => {
+    const token = localStorage.getItem('authToken')
+    const userData = localStorage.getItem('userData')
+    
+    if (!token || !userData) {
+      navigate('/', { replace: true })
+      return
+    }
+    
+    const parsedUser = JSON.parse(userData)
+    if (parsedUser.role !== 'superior') {
+      navigate('/employee', { replace: true })
+      return
+    }
+    
+    setUser(parsedUser)
+  }, [navigate])
+
+  const handleLogout = () => {
+    localStorage.removeItem('authToken')
+    localStorage.removeItem('userData')
+    toast({
+      title: "Logged out successfully",
+      description: "You have been logged out of your account",
+    })
+    navigate('/', { replace: true })
+  }
+
+  // Show loading if user data is not loaded yet
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    )
+  }
 
   // Mock data for employees
   const employees = [
@@ -180,14 +237,6 @@ const SuperiorDashboard = () => {
     }
   ]
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date())
-    }, 1000)
-
-    return () => clearInterval(timer)
-  }, [])
-
   const formatTime = (seconds) => {
     if (!seconds) return "00:00:00"
     const hours = Math.floor(seconds / 3600)
@@ -280,11 +329,13 @@ const SuperiorDashboard = () => {
             <Avatar className="w-12 h-12">
               <AvatarImage src="" />
               <AvatarFallback className="bg-blue-600 text-white">
-                <UserCheck className="w-6 h-6" />
+                {user?.name ? user.name.charAt(0).toUpperCase() : 'S'}
               </AvatarFallback>
             </Avatar>
             <div>
-              <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">Superior Dashboard</h1>
+              <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">
+                Welcome, {user?.name || 'Superior'}!
+              </h1>
               <p className="text-gray-600">{currentTime.toLocaleDateString('en-US', { 
                 weekday: 'long', 
                 year: 'numeric', 
@@ -293,11 +344,22 @@ const SuperiorDashboard = () => {
               })}</p>
             </div>
           </div>
-          <div className="text-right">
-            <div className="text-2xl font-mono font-bold text-gray-900">
-              {currentTime.toLocaleTimeString()}
+          <div className="flex items-center space-x-4">
+            <div className="text-right">
+              <div className="text-2xl font-mono font-bold text-gray-900">
+                {currentTime.toLocaleTimeString()}
+              </div>
+              <p className="text-sm text-gray-600">Current Time</p>
             </div>
-            <p className="text-sm text-gray-600">Current Time</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleLogout}
+              className="flex items-center space-x-2 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Logout</span>
+            </Button>
           </div>
         </div>
 

@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import axios from 'axios'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -12,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
+import { useToast } from '@/hooks/use-toast'
 import { 
   Clock, 
   Play, 
@@ -27,7 +30,8 @@ import {
   Target,
   TrendingUp,
   MessageSquare,
-  FileText
+  FileText,
+  LogOut
 } from 'lucide-react'
 
 const EmployeeDashboard = () => {
@@ -37,42 +41,124 @@ const EmployeeDashboard = () => {
   const [todayHours, setTodayHours] = useState(0)
   const [taskTimers, setTaskTimers] = useState({})
   const [isAddTaskOpen, setIsAddTaskOpen] = useState(false)
+  const [user, setUser] = useState(null)
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
     estimated_hours: '',
     assigned_by: ''
   })
+  const [tasks, setTasks] = useState([])
+  const [isLoadingTasks, setIsLoadingTasks] = useState(true)
 
-  const [tasks, setTasks] = useState([
-    {
-      task_id: 1,
-      title: "Implement User Authentication",
-      description: "Create login/logout functionality with JWT tokens",
-      estimated_hours: 4.0,
-      assigned_by: 101,
-      is_public: true,
-      created_at: "2025-01-15T09:00:00Z"
-    },
-    {
-      task_id: 2,
-      title: "Design Database Schema",
-      description: "Create ERD and database tables for the application",
-      estimated_hours: 3.0,
-      assigned_by: 102,
-      is_public: false,
-      created_at: "2025-01-14T14:30:00Z"
-    },
-    {
-      task_id: 3,
-      title: "Frontend Component Development",
-      description: "Build reusable React components for the dashboard",
-      estimated_hours: 6.0,
-      assigned_by: 103,
-      is_public: true,
-      created_at: "2025-01-13T11:15:00Z"
+  const navigate = useNavigate()
+  const { toast } = useToast()
+
+  // Timer effect for current time and task timers
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date())
+      if (activeTaskId && !isPaused) {
+        setTaskTimers(prev => ({
+          ...prev,
+          [activeTaskId]: (prev[activeTaskId] || 0) + 1
+        }))
+      }
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [activeTaskId, isPaused])
+
+  // Check authentication and get user data
+  useEffect(() => {
+    const token = localStorage.getItem('authToken')
+    const userData = localStorage.getItem('userData')
+    
+    if (!token || !userData) {
+      navigate('/', { replace: true })
+      return
     }
-  ])
+    
+    const parsedUser = JSON.parse(userData)
+    if (parsedUser.role !== 'employee') {
+      navigate('/superior', { replace: true })
+      return
+    }
+    
+    setUser(parsedUser)
+  }, [navigate])
+
+  // Fetch tasks from API
+  useEffect(() => {
+    const fetchTasks = async () => {
+      try {
+        setIsLoadingTasks(true)
+        const token = localStorage.getItem('authToken')
+        
+        if (!token) {
+          return
+        }
+
+        const response = await axios.get('http://localhost:5014/api/Task', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        })
+
+        // Transform API response to match component structure
+        const transformedTasks = response.data.map(task => ({
+          task_id: task.taskId,
+          title: task.title,
+          description: task.description,
+          estimated_hours: task.estimatedHours,
+          assigned_by: task.assignedBy,
+          is_public: task.isPublic,
+          created_at: task.createdAt
+        }))
+
+        setTasks(transformedTasks)
+      } catch (error) {
+        console.error('Error fetching tasks:', error)
+        toast({
+          title: "Error fetching tasks",
+          description: "Failed to load tasks from server",
+          variant: "destructive"
+        })
+      } finally {
+        setIsLoadingTasks(false)
+      }
+    }
+
+    // Only fetch tasks if user is loaded
+    if (user) {
+      fetchTasks()
+    }
+  }, [user, toast])
+
+  const handleLogout = () => {
+    localStorage.removeItem('authToken')
+    localStorage.removeItem('userData')
+    toast({
+      title: "Logged out successfully",
+      description: "You have been logged out of your account",
+    })
+    navigate('/', { replace: true })
+  }
+
+  // Show loading if user data or tasks are not loaded yet
+  if (!user || isLoadingTasks) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">
+            {!user ? 'Loading user data...' : 'Loading tasks...'}
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   const mockQueries = [
     {
@@ -90,20 +176,6 @@ const EmployeeDashboard = () => {
       createdAt: "1 day ago"
     }
   ]
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date())
-      if (activeTaskId && !isPaused) {
-        setTaskTimers(prev => ({
-          ...prev,
-          [activeTaskId]: (prev[activeTaskId] || 0) + 1
-        }))
-      }
-    }, 1000)
-
-    return () => clearInterval(timer)
-  }, [activeTaskId, isPaused])
 
   const formatTime = (seconds) => {
     if (!seconds) return "00:00:00"
@@ -150,12 +222,13 @@ const EmployeeDashboard = () => {
       return
     }
 
+    // Create task in the same format as API response
     const taskToAdd = {
-      task_id: Math.max(...tasks.map(t => t.task_id), 0) + 1,
+      task_id: tasks.length > 0 ? Math.max(...tasks.map(t => t.task_id), 0) + 1 : 1,
       title: newTask.title.trim(),
       description: newTask.description.trim(),
       estimated_hours: parseFloat(newTask.estimated_hours),
-      assigned_by: "",
+      assigned_by: user?.id || 0,
       is_public: false,
       created_at: new Date().toISOString()
     }
@@ -168,6 +241,11 @@ const EmployeeDashboard = () => {
       assigned_by: ''
     })
     setIsAddTaskOpen(false)
+    
+    toast({
+      title: "Task added successfully",
+      description: `Task "${taskToAdd.title}" has been added to your list`,
+    })
   }
 
   const handleCancelAddTask = () => {
@@ -193,11 +271,13 @@ const EmployeeDashboard = () => {
             <Avatar className="w-12 h-12">
               <AvatarImage src="" />
               <AvatarFallback className="bg-blue-600 text-white">
-                <User className="w-6 h-6" />
+                {user?.name ? user.name.charAt(0).toUpperCase() : 'E'}
               </AvatarFallback>
             </Avatar>
             <div>
-              <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">Welcome back, Employee!</h1>
+              <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">
+                Welcome back, {user?.name || 'Employee'}!
+              </h1>
               <p className="text-gray-600">{currentTime.toLocaleDateString('en-US', { 
                 weekday: 'long', 
                 year: 'numeric', 
@@ -206,11 +286,22 @@ const EmployeeDashboard = () => {
               })}</p>
             </div>
           </div>
-          <div className="text-right">
-            <div className="text-2xl font-mono font-bold text-gray-900">
-              {currentTime.toLocaleTimeString()}
+          <div className="flex items-center space-x-4">
+            <div className="text-right">
+              <div className="text-2xl font-mono font-bold text-gray-900">
+                {currentTime.toLocaleTimeString()}
+              </div>
+              <p className="text-sm text-gray-600">Current Time</p>
             </div>
-            <p className="text-sm text-gray-600">Current Time</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleLogout}
+              className="flex items-center space-x-2 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Logout</span>
+            </Button>
           </div>
         </div>
 
@@ -450,7 +541,14 @@ const EmployeeDashboard = () => {
             </div>
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {tasks.map(task => (
+              {tasks.length === 0 ? (
+                <div className="col-span-full text-center py-12">
+                  <Target className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">No Tasks Found</h3>
+                  <p className="text-gray-600 mb-4">You don't have any tasks assigned yet. Add a new task to get started.</p>
+                </div>
+              ) : (
+                tasks.map(task => (
                 <Card key={task.task_id} className="shadow-md border-0 bg-white/80 backdrop-blur-sm hover:shadow-lg transition-shadow">
                   <CardHeader className="pb-3">
                     <div className="flex justify-between items-start">
@@ -524,7 +622,8 @@ const EmployeeDashboard = () => {
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+                ))
+              )}
             </div>
           </TabsContent>
 
