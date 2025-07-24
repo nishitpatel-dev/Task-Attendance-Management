@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import axios from 'axios'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -263,20 +264,61 @@ const SuperiorDashboard = () => {
     }
   }
 
-  const handleAssignTask = () => {
+  const handleAssignTask = async () => {
     if (!newTask.title.trim() || !newTask.description.trim() || !newTask.estimated_hours) {
       return
     }
 
-    // In real app, this would call an API
-    console.log('Creating task:', newTask)
-    
-    setNewTask({
-      title: '',
-      description: '',
-      estimated_hours: ''
-    })
-    setIsAssignTaskOpen(false)
+    try {
+      const token = localStorage.getItem('authToken')
+      
+      if (!token) {
+        toast({
+          title: "Authentication Error",
+          description: "Please login again to create tasks",
+          variant: "destructive"
+        })
+        return
+      }
+
+      // Prepare task object according to API structure
+      const taskPayload = {
+        title: newTask.title.trim(),
+        description: newTask.description.trim(),
+        estimatedHours: parseFloat(newTask.estimated_hours),
+        assignedBy: 1 // Superior assigns tasks with assignedBy: 1
+      }
+
+      // Call POST API
+      const response = await axios.post('http://localhost:5014/api/Task', taskPayload, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      // Reset form
+      setNewTask({
+        title: '',
+        description: '',
+        estimated_hours: ''
+      })
+      setIsAssignTaskOpen(false)
+      
+      // Show success toast
+      toast({
+        title: "Task created successfully",
+        description: `Task "${taskPayload.title}" has been created successfully`,
+      })
+
+    } catch (error) {
+      console.error('Error creating task:', error)
+      toast({
+        title: "Error creating task",
+        description: "Failed to create task on server. Please try again.",
+        variant: "destructive"
+      })
+    }
   }
 
   const handleCancelAssignTask = () => {
