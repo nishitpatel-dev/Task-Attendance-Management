@@ -58,6 +58,8 @@ const SuperiorDashboard = () => {
   const [isLoadingAllTasks, setIsLoadingAllTasks] = useState(false)
   const [allQueriesFromAPI, setAllQueriesFromAPI] = useState([])
   const [isLoadingQueries, setIsLoadingQueries] = useState(false)
+  const [allEmployeesFromAPI, setAllEmployeesFromAPI] = useState([])
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(false)
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
@@ -99,6 +101,7 @@ const SuperiorDashboard = () => {
     // Fetch initial task count and queries
     fetchAllTasks()
     fetchAllQueries()
+    fetchAllEmployees()
   }, [navigate])
 
   const fetchAllQueries = async () => {
@@ -133,6 +136,43 @@ const SuperiorDashboard = () => {
       })
     } finally {
       setIsLoadingQueries(false)
+    }
+  }
+
+  const fetchAllEmployees = async () => {
+    try {
+      setIsLoadingEmployees(true)
+      const token = localStorage.getItem('authToken')
+      
+      if (!token) {
+        toast({
+          title: "Authentication Error",
+          description: "Please login again to view employees",
+          variant: "destructive"
+        })
+        return
+      }
+
+      const response = await axios.get('http://localhost:5014/api/Users', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      console.log('Fetched employees from API:', response.data) // Debug log
+      // Filter out superiors (roleId 1) and only show employees (roleId 2)
+      const employees = response.data.filter(user => user.roleId === 2)
+      setAllEmployeesFromAPI(employees)
+    } catch (error) {
+      console.error('Error fetching employees:', error)
+      toast({
+        title: "Error fetching employees",
+        description: "Failed to load employees from server",
+        variant: "destructive"
+      })
+    } finally {
+      setIsLoadingEmployees(false)
     }
   }
 
@@ -513,7 +553,7 @@ const SuperiorDashboard = () => {
     return true
   })
 
-  const totalEmployees = employees.length
+  const totalEmployees = allEmployeesFromAPI.length
   const activeEmployees = employees.filter(emp => emp.status === 'Working').length
   const completedEmployees = employees.filter(emp => emp.status === 'Complete').length
   const totalTasks = allTasks.length
@@ -566,7 +606,9 @@ const SuperiorDashboard = () => {
 
         {/* Overview Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
+          <Card 
+            className="shadow-lg border-0 bg-white/80 backdrop-blur-sm cursor-pointer hover:shadow-xl transition-shadow"
+          >
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
@@ -629,58 +671,64 @@ const SuperiorDashboard = () => {
           </Card>
         </div>
 
-        {/* Employee Status Overview */}
+        {/* Employee Overview */}
         <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
           <CardHeader className="pb-4">
             <CardTitle className="flex items-center space-x-2">
               <BarChart3 className="w-5 h-5 text-green-600" />
-              <span>Employee Status Overview</span>
+              <span>Employee Overview</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {employees.map(employee => (
-                <Card key={employee.id} className="border border-gray-200">
-                  <CardContent className="p-4">
-                    <div className="flex items-center space-x-3 mb-3">
-                      <Avatar className="w-10 h-10">
-                        <AvatarImage src="" />
-                        <AvatarFallback className="bg-blue-600 text-white text-sm">
-                          {employee.name.split(' ').map(n => n[0]).join('')}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-gray-900">{employee.name}</h3>
-                        <p className="text-xs text-gray-600">{employee.email}</p>
-                      </div>
-                      <Badge className={employee.status === 'Working' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'} variant="outline">
-                        {employee.status}
-                      </Badge>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span>Hours Today</span>
-                        <span className="font-semibold">{employee.totalHoursToday.toFixed(1)}/8.0</span>
-                      </div>
-                      <Progress value={employee.workProgress} className="h-2" />
-                      
-                      {employee.activeTask && (
-                        <div className="mt-2 p-2 bg-blue-50 rounded text-xs">
-                          <span className="font-medium text-blue-900">Active: </span>
-                          <span className="text-blue-700">{employee.activeTask}</span>
+            {isLoadingEmployees ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                <span className="ml-3 text-gray-600">Loading employees...</span>
+              </div>
+            ) : allEmployeesFromAPI.length === 0 ? (
+              <div className="text-center py-8">
+                <Users className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">No Employees Found</h3>
+                <p className="text-gray-600">No employees have been registered yet.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {allEmployeesFromAPI.map(employee => (
+                  <Card key={employee.userId} className="border border-gray-200">
+                    <CardContent className="p-4">
+                      <div className="flex items-center space-x-3 mb-3">
+                        <Avatar className="w-10 h-10">
+                          <AvatarImage src="" />
+                          <AvatarFallback className="bg-blue-600 text-white text-sm">
+                            {employee.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1">
+                          <h3 className="font-semibold text-gray-900">{employee.name}</h3>
+                          <p className="text-xs text-gray-600">{employee.email}</p>
                         </div>
-                      )}
-                      
-                      <div className="flex justify-between text-xs text-gray-600 mt-2">
-                        <span>Completed: {employee.tasksCompleted}</span>
-                        <span>In Progress: {employee.tasksInProgress}</span>
+                        <Badge className="bg-green-100 text-green-800" variant="outline">
+                          Active
+                        </Badge>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                      
+                      <div className="space-y-2">
+                        <div className="text-sm">
+                          <span className="font-medium text-gray-700">Joined:</span>
+                          <p className="text-gray-600">
+                            {new Date(employee.createdAt).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric'
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
