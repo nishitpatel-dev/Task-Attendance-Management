@@ -60,6 +60,8 @@ const SuperiorDashboard = () => {
   const [isLoadingQueries, setIsLoadingQueries] = useState(false)
   const [allEmployeesFromAPI, setAllEmployeesFromAPI] = useState([])
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(false)
+  const [allQueryRepliesFromAPI, setAllQueryRepliesFromAPI] = useState([])
+  const [isLoadingQueryReplies, setIsLoadingQueryReplies] = useState(false)
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
@@ -71,7 +73,6 @@ const SuperiorDashboard = () => {
   const navigate = useNavigate()
   const { toast } = useToast()
 
-  // Timer effect for current time
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date())
@@ -80,7 +81,6 @@ const SuperiorDashboard = () => {
     return () => clearInterval(timer)
   }, [])
 
-  // Check authentication and get user data
   useEffect(() => {
     const token = localStorage.getItem('authToken')
     const userData = localStorage.getItem('userData')
@@ -98,10 +98,10 @@ const SuperiorDashboard = () => {
     
     setUser(parsedUser)
     
-    // Fetch initial task count and queries
     fetchAllTasks()
     fetchAllQueries()
     fetchAllEmployees()
+    fetchAllQueryReplies()
   }, [navigate])
 
   const fetchAllQueries = async () => {
@@ -125,7 +125,7 @@ const SuperiorDashboard = () => {
         }
       })
 
-      console.log('Fetched queries from API:', response.data) // Debug log
+      console.log('Fetched queries from API:', response.data)
       setAllQueriesFromAPI(response.data)
     } catch (error) {
       console.error('Error fetching queries:', error)
@@ -160,8 +160,7 @@ const SuperiorDashboard = () => {
         }
       })
 
-      console.log('Fetched employees from API:', response.data) // Debug log
-      // Filter out superiors (roleId 1) and only show employees (roleId 2)
+      console.log('Fetched employees from API:', response.data)
       const employees = response.data.filter(user => user.roleId === 2)
       setAllEmployeesFromAPI(employees)
     } catch (error) {
@@ -173,6 +172,41 @@ const SuperiorDashboard = () => {
       })
     } finally {
       setIsLoadingEmployees(false)
+    }
+  }
+
+  const fetchAllQueryReplies = async () => {
+    try {
+      setIsLoadingQueryReplies(true)
+      const token = localStorage.getItem('authToken')
+      
+      if (!token) {
+        toast({
+          title: "Authentication Error",
+          description: "Please login again to view query replies",
+          variant: "destructive"
+        })
+        return
+      }
+
+      const response = await axios.get('http://localhost:5014/api/QueryReplies', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      console.log('Fetched query replies from API:', response.data)
+      setAllQueryRepliesFromAPI(response.data)
+    } catch (error) {
+      console.error('Error fetching query replies:', error)
+      toast({
+        title: "Error fetching query replies",
+        description: "Failed to load query replies from server",
+        variant: "destructive"
+      })
+    } finally {
+      setIsLoadingQueryReplies(false)
     }
   }
 
@@ -229,7 +263,6 @@ const SuperiorDashboard = () => {
     setActiveTab('queries')
   }
 
-  // Show loading if user data is not loaded yet
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -241,7 +274,6 @@ const SuperiorDashboard = () => {
     )
   }
 
-  // Mock data for employees
   const employees = [
     {
       id: 1,
@@ -278,7 +310,6 @@ const SuperiorDashboard = () => {
     }
   ]
 
-  // Mock data for tasks
   const allTasks = [
     {
       task_id: 1,
@@ -326,7 +357,6 @@ const SuperiorDashboard = () => {
     }
   ]
 
-  // Mock data for queries
   const queries = [
     {
       id: 1,
@@ -373,7 +403,6 @@ const SuperiorDashboard = () => {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
 
-  // Helper function to format relative time
   const formatRelativeTime = (dateString) => {
     const now = new Date()
     const date = new Date(dateString)
@@ -434,15 +463,13 @@ const SuperiorDashboard = () => {
         return
       }
 
-      // Prepare task object according to API structure
       const taskPayload = {
         title: newTask.title.trim(),
         description: newTask.description.trim(),
         estimatedHours: parseFloat(newTask.estimated_hours),
-        assignedBy: 1 // Superior assigns tasks with assignedBy: 1
+        assignedBy: 1
       }
 
-      // Call POST API
       const response = await axios.post('http://localhost:5014/api/Task', taskPayload, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -450,7 +477,6 @@ const SuperiorDashboard = () => {
         }
       })
 
-      // Reset form
       setNewTask({
         title: '',
         description: '',
@@ -458,17 +484,15 @@ const SuperiorDashboard = () => {
       })
       setIsAssignTaskOpen(false)
       
-      // Show success toast
       toast({
         title: "Task created successfully",
         description: `Task "${taskPayload.title}" has been created successfully`,
       })
 
-      // Refresh the all tasks data to update the count in the overview card
       fetchAllTasks()
       
-      // Also refresh queries in case there are any related to the new task
       fetchAllQueries()
+      fetchAllQueryReplies()
 
     } catch (error) {
       console.error('Error creating task:', error)
@@ -507,14 +531,12 @@ const SuperiorDashboard = () => {
 
       const user = JSON.parse(userData)
       
-      // Prepare the response payload according to API structure
       const responsePayload = {
         queryId: selectedQueryForResponse.queryId,
         repliedBy: user.userId,
         message: queryResponse.trim()
       }
 
-      // Call POST API to submit the response
       const response = await axios.post('http://localhost:5014/api/QueryReplies/reply', responsePayload, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -522,19 +544,29 @@ const SuperiorDashboard = () => {
         }
       })
 
-      // Show success toast
+      const statusUpdatePayload = {
+        queryId: selectedQueryForResponse.queryId,
+        status: "Resolved"
+      }
+
+      await axios.put('http://localhost:5014/api/Queries/update-status', statusUpdatePayload, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
       toast({
         title: "Response sent successfully",
-        description: `Your response to "${selectedQueryForResponse.subject}" has been sent`,
+        description: `Your response to "${selectedQueryForResponse.subject}" has been sent and query is now resolved`,
       })
       
-      // Reset form and close modal
       setQueryResponse('')
       setSelectedQueryForResponse(null)
       setIsQueryResponseOpen(false)
       
-      // Refresh queries to get updated data
       fetchAllQueries()
+      fetchAllQueryReplies()
 
     } catch (error) {
       console.error('Error sending query response:', error)
@@ -546,7 +578,12 @@ const SuperiorDashboard = () => {
     }
   }
 
-  const filteredTasks = allTasks.filter(task => {
+  const getQueryReplies = (queryId) => {
+    return allQueryRepliesFromAPI.filter(reply => reply.queryId === queryId)
+      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+  }
+
+  const filteredTasks = allTasksFromAPI.filter(task => {
     if (selectedEmployee !== 'all' && task.assigned_to !== parseInt(selectedEmployee)) return false
     if (selectedTaskFilter !== 'all' && task.status !== selectedTaskFilter) return false
     if (searchQuery && !task.title.toLowerCase().includes(searchQuery.toLowerCase())) return false
@@ -561,8 +598,8 @@ const SuperiorDashboard = () => {
   const totalEmployees = allEmployeesFromAPI.length
   const activeEmployees = employees.filter(emp => emp.status === 'Working').length
   const completedEmployees = employees.filter(emp => emp.status === 'Complete').length
-  const totalTasks = allTasks.length
-  const completedTasks = allTasks.filter(task => task.status === 'Completed').length
+  const totalTasks = allTasksFromAPI.length
+  const completedTasks = allTasksFromAPI.filter(task => task.status === 'Completed').length
   const totalQueries = allQueriesFromAPI.length
 
   return (
@@ -610,7 +647,7 @@ const SuperiorDashboard = () => {
         </div>
 
         {/* Overview Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <Card 
             className="shadow-lg border-0 bg-white/80 backdrop-blur-sm cursor-pointer hover:shadow-xl transition-shadow"
           >
@@ -639,20 +676,6 @@ const SuperiorDashboard = () => {
                 </div>
                 <div className="p-3 bg-green-100 rounded-full">
                   <ClipboardList className="w-6 h-6 text-green-600" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Tasks Completed</p>
-                  <p className="text-2xl font-bold text-blue-600">{completedTasks}/{totalTasks}</p>
-                </div>
-                <div className="p-3 bg-blue-100 rounded-full">
-                  <CheckCircle className="w-6 h-6 text-blue-600" />
                 </div>
               </div>
             </CardContent>
@@ -764,64 +787,59 @@ const SuperiorDashboard = () => {
             </div>
 
             <div className="grid gap-4">
-              {filteredTasks.map(task => (
-                <Card key={task.task_id} className="shadow-md border-0 bg-white/80 backdrop-blur-sm">
-                  <CardContent className="p-6">
-                    <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-3 mb-2">
-                          <h3 className="text-lg font-semibold text-gray-900">{task.title}</h3>
-                          <Badge className={
-                            task.status === 'Completed' ? 'bg-green-100 text-green-800' :
-                            task.status === 'In Progress' ? 'bg-blue-100 text-blue-800' :
-                            'bg-gray-100 text-gray-800'
-                          } variant="outline">
-                            {task.status}
-                          </Badge>
-                        </div>
-                        
-                        <p className="text-gray-600 mb-3">{task.description}</p>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                          <div>
-                            <span className="font-medium text-gray-700">Assigned to:</span>
-                            <p className="text-gray-600">{task.assigned_to_name}</p>
+              {isLoadingAllTasks ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="ml-3 text-gray-600">Loading tasks...</span>
+                </div>
+              ) : allTasksFromAPI.length === 0 ? (
+                <div className="text-center py-12">
+                  <ClipboardList className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">No Tasks Found</h3>
+                  <p className="text-gray-600">No tasks have been created yet.</p>
+                </div>
+              ) : filteredTasks.length === 0 ? (
+                <div className="text-center py-12">
+                  <ClipboardList className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">No Tasks Found</h3>
+                  <p className="text-gray-600">No tasks match the selected filter.</p>
+                </div>
+              ) : (
+                filteredTasks.map(task => (
+                  <Card key={task.taskId} className="shadow-md border-0 bg-white/80 backdrop-blur-sm">
+                    <CardContent className="p-6">
+                      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-3 mb-2">
+                            <h3 className="text-lg font-semibold text-gray-900">{task.title}</h3>
                           </div>
-                          <div>
-                            <span className="font-medium text-gray-700">Created:</span>
-                            <p className="text-gray-600">{new Date(task.created_at).toLocaleDateString()}</p>
-                          </div>
-                          <div>
-                            <span className="font-medium text-gray-700">Estimated Hours:</span>
-                            <p className="text-gray-600">{task.estimated_hours}h</p>
-                          </div>
-                        </div>
-                        
-                        {task.time_spent > 0 && (
-                          <div className="mt-3">
-                            <div className="flex justify-between text-sm mb-1">
-                              <span>Progress</span>
-                              <span>{task.time_spent.toFixed(1)}h / {task.estimated_hours}h</span>
+                          
+                          <p className="text-gray-600 mb-3">{task.description}</p>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <span className="font-medium text-gray-700">Estimated Hours:</span>
+                              <span className="text-gray-600 ml-2">{task.estimatedHours}h</span>
                             </div>
-                            <Progress value={(task.time_spent / task.estimated_hours) * 100} className="h-2" />
+                            <div>
+                              <span className="font-medium text-gray-700">Created At:</span>
+                              <span className="text-gray-600 ml-2">
+                                {new Date(task.createdAt).toLocaleDateString('en-US', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </span>
+                            </div>
                           </div>
-                        )}
+                        </div>
                       </div>
-                      
-                      <div className="flex space-x-2">
-                        <Button variant="outline" size="sm">
-                          <Eye className="w-4 h-4 mr-1" />
-                          View
-                        </Button>
-                        <Button variant="outline" size="sm">
-                          <Edit className="w-4 h-4 mr-1" />
-                          Edit
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                ))
+              )}
             </div>
           </TabsContent>
 
@@ -863,49 +881,63 @@ const SuperiorDashboard = () => {
                   <p className="text-gray-600 mb-4">No queries match the selected filter.</p>
                 </div>
               ) : (
-                filteredQueries.map(query => (
-                  <Card key={query.queryId} className="shadow-md border-0 bg-white/80 backdrop-blur-sm">
-                    <CardContent className="p-6">
-                      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-3 mb-2">
-                            <h3 className="text-lg font-semibold text-gray-900">{query.subject}</h3>
-                            <Badge variant={query.status === 'Open' ? "destructive" : query.status === 'Resolved' ? "default" : "outline"}>
-                              {query.status}
-                            </Badge>
-                          </div>
-                          
-                          <p className="text-gray-600 mb-3">{query.description}</p>
-                          
-                          <div className="mb-3">
-                            <span className="text-sm text-gray-500">{formatRelativeTime(query.raisedAt)}</span>
-                          </div>
-                          
-                          {query.queryReplies && query.queryReplies.length > 0 && (
-                            <div className="bg-blue-50 p-3 rounded-lg">
-                              <span className="font-medium text-blue-900">Latest Response:</span>
-                              <p className="text-blue-700 mt-1">{query.queryReplies[query.queryReplies.length - 1].replyText}</p>
+                filteredQueries.map(query => {
+                  const queryReplies = getQueryReplies(query.queryId)
+                  
+                  return (
+                    <Card key={query.queryId} className="shadow-md border-0 bg-white/80 backdrop-blur-sm">
+                      <CardContent className="p-6">
+                        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                          <div className="flex-1">
+                            <div className="flex items-center space-x-3 mb-2">
+                              <h3 className="text-lg font-semibold text-gray-900">{query.subject}</h3>
+                              <Badge variant={query.status === 'Open' ? "destructive" : query.status === 'Resolved' ? "default" : "outline"}>
+                                {query.status}
+                              </Badge>
                             </div>
-                          )}
+                            
+                            <p className="text-gray-600 mb-3">{query.description}</p>
+                            
+                            <div className="mb-3">
+                              <span className="text-sm text-gray-500">{formatRelativeTime(query.raisedAt)}</span>
+                            </div>
+                            
+                            {/* Display Query Replies - Only show for Resolved queries */}
+                            {query.status === 'Resolved' && queryReplies.length > 0 && (
+                              <div className="mt-4 space-y-3">
+                                <h4 className="font-medium text-gray-900 flex items-center space-x-2">
+                                  <MessageSquare className="w-4 h-4" />
+                                  <span>Replies ({queryReplies.length})</span>
+                                </h4>
+                                {queryReplies.map(reply => (
+                                  <div key={reply.replyId} className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-r-lg">
+                                    <p className="text-blue-900">{reply.message}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          
+                          <div className="flex space-x-2">
+                            {(query.status === 'Open' || query.status === 'In Progress') && (
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedQueryForResponse(query)
+                                  setIsQueryResponseOpen(true)
+                                }}
+                              >
+                                <MessageSquare className="w-4 h-4 mr-1" />
+                                Reply
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                        
-                        <div className="flex space-x-2">
-                          <Button 
-                            variant="outline" 
-                            size="sm"
-                            onClick={() => {
-                              setSelectedQueryForResponse(query)
-                              setIsQueryResponseOpen(true)
-                            }}
-                          >
-                            <MessageSquare className="w-4 h-4 mr-1" />
-                            Reply
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
+                      </CardContent>
+                    </Card>
+                  )
+                })
               )}
             </div>
           </TabsContent>

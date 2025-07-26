@@ -22,7 +22,6 @@ const Login = () => {
   const navigate = useNavigate()
   const { toast } = useToast()
 
-  // Check if user is already logged in
   useEffect(() => {
     const token = localStorage.getItem('authToken')
     const userData = localStorage.getItem('userData')
@@ -51,17 +50,14 @@ const Login = () => {
       })
 
       if (response.data && response.data.token && response.data.user) {
-        // Store token and user data in localStorage
         localStorage.setItem('authToken', response.data.token)
         localStorage.setItem('userData', JSON.stringify(response.data.user))
         
-        // Show success message
         toast({
           title: "Login Successful",
           description: `Welcome back, ${response.data.user.name}!`,
         })
         
-        // Navigate based on role
         const redirectPath = response.data.user.role === 'employee' ? '/employee' : '/superior'
         navigate(redirectPath, { replace: true })
       } else {
@@ -77,10 +73,8 @@ const Login = () => {
       let errorMessage = 'An unexpected error occurred'
       
       if (error.response) {
-        // Server responded with error status
         errorMessage = error.response.data?.message || 'Login failed. Please check your credentials.'
       } else if (error.request) {
-        // Network error
         errorMessage = 'Network error. Please check your connection and try again.'
       }
       

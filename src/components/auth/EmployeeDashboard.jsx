@@ -40,13 +40,14 @@ const EmployeeDashboard = () => {
   const [isPaused, setIsPaused] = useState(false)
   const [todayHours, setTodayHours] = useState(0)
   const [taskTimers, setTaskTimers] = useState({})
-  const [isOnManualBreak, setIsOnManualBreak] = useState(false) // Track manual break status
-  const [manualBreakStartTime, setManualBreakStartTime] = useState(null) // Track manual break start time
-  const [totalBreakTime, setTotalBreakTime] = useState(0) // Track total break time in seconds
-  const [isBreakPaused, setIsBreakPaused] = useState(false) // Track if break is paused
-  const [breakPauseStartTime, setBreakPauseStartTime] = useState(null) // Track when break was paused
+  const [isOnManualBreak, setIsOnManualBreak] = useState(false)
+  const [manualBreakStartTime, setManualBreakStartTime] = useState(null)
+  const [totalBreakTime, setTotalBreakTime] = useState(0)
+  const [isBreakPaused, setIsBreakPaused] = useState(false)
+  const [breakPauseStartTime, setBreakPauseStartTime] = useState(null)
   const [isAddTaskOpen, setIsAddTaskOpen] = useState(false)
   const [user, setUser] = useState(null)
+  const [startedTasks, setStartedTasks] = useState(new Set())
   const [newTask, setNewTask] = useState({
     title: '',
     description: '',
@@ -57,6 +58,8 @@ const EmployeeDashboard = () => {
   const [isLoadingTasks, setIsLoadingTasks] = useState(true)
   const [queries, setQueries] = useState([])
   const [isLoadingQueries, setIsLoadingQueries] = useState(true)
+  const [allQueryRepliesFromAPI, setAllQueryRepliesFromAPI] = useState([])
+  const [isLoadingQueryReplies, setIsLoadingQueryReplies] = useState(false)
   const [isQueryModalOpen, setIsQueryModalOpen] = useState(false)
   const [selectedTaskForQuery, setSelectedTaskForQuery] = useState(null)
   const [queryForm, setQueryForm] = useState({
@@ -67,7 +70,6 @@ const EmployeeDashboard = () => {
   const navigate = useNavigate()
   const { toast } = useToast()
 
-  // Helper functions for user-specific timer data
   const getUserTimerKey = (userId) => `taskTimers_${userId}`
   const getUserActiveTaskKey = (userId) => `activeTaskId_${userId}`
   const getUserPausedKey = (userId) => `isPaused_${userId}`
@@ -77,6 +79,7 @@ const EmployeeDashboard = () => {
   const getUserTotalBreakTimeKey = (userId) => `totalBreakTime_${userId}`
   const getUserBreakPausedKey = (userId) => `isBreakPaused_${userId}`
   const getUserBreakPauseStartTimeKey = (userId) => `breakPauseStartTime_${userId}`
+  const getUserStartedTasksKey = (userId) => `startedTasks_${userId}`
 
   const loadUserTimerData = (userId) => {
     const savedTimers = localStorage.getItem(getUserTimerKey(userId))
@@ -87,6 +90,7 @@ const EmployeeDashboard = () => {
     const savedTotalBreakTime = localStorage.getItem(getUserTotalBreakTimeKey(userId))
     const savedIsBreakPaused = localStorage.getItem(getUserBreakPausedKey(userId))
     const savedBreakPauseStartTime = localStorage.getItem(getUserBreakPauseStartTimeKey(userId))
+    const savedStartedTasks = localStorage.getItem(getUserStartedTasksKey(userId))
     
     return {
       timers: savedTimers ? JSON.parse(savedTimers) : {},
@@ -96,11 +100,12 @@ const EmployeeDashboard = () => {
       manualBreakStartTime: savedManualBreakStartTime ? parseInt(savedManualBreakStartTime) : null,
       totalBreakTime: savedTotalBreakTime ? parseInt(savedTotalBreakTime) : 0,
       isBreakPaused: savedIsBreakPaused === 'true',
-      breakPauseStartTime: savedBreakPauseStartTime ? parseInt(savedBreakPauseStartTime) : null
+      breakPauseStartTime: savedBreakPauseStartTime ? parseInt(savedBreakPauseStartTime) : null,
+      startedTasks: savedStartedTasks ? new Set(JSON.parse(savedStartedTasks)) : new Set()
     }
   }
 
-  const saveUserTimerData = (userId, timers, activeTaskId, isPaused, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime) => {
+  const saveUserTimerData = (userId, timers, activeTaskId, isPaused, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime, startedTasks) => {
     localStorage.setItem(getUserTimerKey(userId), JSON.stringify(timers))
     
     if (activeTaskId !== null) {
@@ -125,9 +130,14 @@ const EmployeeDashboard = () => {
     } else {
       localStorage.removeItem(getUserBreakPauseStartTimeKey(userId))
     }
+    
+    if (startedTasks && startedTasks.size > 0) {
+      localStorage.setItem(getUserStartedTasksKey(userId), JSON.stringify([...startedTasks]))
+    } else {
+      localStorage.removeItem(getUserStartedTasksKey(userId))
+    }
   }
 
-  // Optional: Function to clear all timer data for a user (for admin use or reset)
   const clearUserTimerData = (userId) => {
     localStorage.removeItem(getUserTimerKey(userId))
     localStorage.removeItem(getUserActiveTaskKey(userId))
@@ -138,9 +148,9 @@ const EmployeeDashboard = () => {
     localStorage.removeItem(getUserTotalBreakTimeKey(userId))
     localStorage.removeItem(getUserBreakPausedKey(userId))
     localStorage.removeItem(getUserBreakPauseStartTimeKey(userId))
+    localStorage.removeItem(getUserStartedTasksKey(userId))
   }
 
-  // Timer effect for current time, task timers, and break time tracking
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date())
@@ -150,27 +160,18 @@ const EmployeeDashboard = () => {
             ...prev,
             [activeTaskId]: (prev[activeTaskId] || 0) + 1
           }
-          // Save to user-specific localStorage
-          saveUserTimerData(user.id, newTimers, activeTaskId, isPaused, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime)
+          saveUserTimerData(user.id, newTimers, activeTaskId, isPaused, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime, startedTasks)
           return newTimers
         })
       }
       
-      // Handle manual break time tracking
       if (isOnManualBreak && !isBreakPaused && manualBreakStartTime && user) {
         const currentTime = new Date()
         const currentHour = currentTime.getHours()
         
-        // Check if current time is still within break window (8 PM to 10 PM)
-        if (currentHour >= 20 && currentHour < 22) {
-          // Continue tracking break time
-          setTotalBreakTime(prev => {
-            const newBreakTime = prev + 1
-            saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused, isOnManualBreak, manualBreakStartTime, newBreakTime, isBreakPaused, breakPauseStartTime)
-            return newBreakTime
-          })
+        if (currentHour >= 6 && currentHour < 12) {
+          // Break time is calculated dynamically in getCurrentBreakTime(), no need to increment here
         } else {
-          // Auto-stop break if it's past 10 PM
           if (manualBreakStartTime) {
             const breakDuration = Math.floor((Date.now() - manualBreakStartTime) / 1000)
             setTotalBreakTime(prev => prev + breakDuration)
@@ -180,11 +181,11 @@ const EmployeeDashboard = () => {
           setIsBreakPaused(false)
           setBreakPauseStartTime(null)
           if (user) {
-            saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused, false, null, totalBreakTime, false, null)
+            saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused, false, null, totalBreakTime, false, null, startedTasks)
           }
           toast({
             title: "Break Ended",
-            description: "Break window closed at 10 PM. You can now start tasks",
+            description: "Break window closed at 12 PM. You can now start tasks",
           })
         }
       }
@@ -193,14 +194,12 @@ const EmployeeDashboard = () => {
     return () => clearInterval(timer)
   }, [activeTaskId, isPaused, user, taskTimers, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime])
 
-  // Save taskTimers to user-specific localStorage whenever it changes
   useEffect(() => {
     if (user) {
-      saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime)
+      saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime, startedTasks)
     }
-  }, [taskTimers, activeTaskId, isPaused, user, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime])
+  }, [taskTimers, activeTaskId, isPaused, user, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime, startedTasks])
 
-  // Check authentication and get user data
   useEffect(() => {
     const token = localStorage.getItem('authToken')
     const userData = localStorage.getItem('userData')
@@ -218,15 +217,12 @@ const EmployeeDashboard = () => {
     
     setUser(parsedUser)
 
-    // Load user-specific timer data
     const userTimerData = loadUserTimerData(parsedUser.id)
     
-    // Check if it's a new day and clear timer data if needed
     const lastActiveDate = localStorage.getItem(getUserLastActiveDateKey(parsedUser.id))
     const today = new Date().toDateString()
     
     if (lastActiveDate && lastActiveDate !== today) {
-      // New day detected, clear user-specific timer data
       localStorage.removeItem(getUserTimerKey(parsedUser.id))
       localStorage.removeItem(getUserActiveTaskKey(parsedUser.id))
       localStorage.removeItem(getUserPausedKey(parsedUser.id))
@@ -235,6 +231,7 @@ const EmployeeDashboard = () => {
       localStorage.removeItem(getUserTotalBreakTimeKey(parsedUser.id))
       localStorage.removeItem(getUserBreakPausedKey(parsedUser.id))
       localStorage.removeItem(getUserBreakPauseStartTimeKey(parsedUser.id))
+      localStorage.removeItem(getUserStartedTasksKey(parsedUser.id))
       setTaskTimers({})
       setActiveTaskId(null)
       setIsPaused(false)
@@ -243,8 +240,8 @@ const EmployeeDashboard = () => {
       setTotalBreakTime(0)
       setIsBreakPaused(false)
       setBreakPauseStartTime(null)
+      setStartedTasks(new Set())
     } else {
-      // Load existing timer data for the user
       setTaskTimers(userTimerData.timers)
       setActiveTaskId(userTimerData.activeTaskId)
       setIsPaused(userTimerData.isPaused)
@@ -253,17 +250,16 @@ const EmployeeDashboard = () => {
       setTotalBreakTime(userTimerData.totalBreakTime)
       setIsBreakPaused(userTimerData.isBreakPaused)
       setBreakPauseStartTime(userTimerData.breakPauseStartTime)
+      setStartedTasks(userTimerData.startedTasks)
     }
     
-    // Update last active date for this user
     localStorage.setItem(getUserLastActiveDateKey(parsedUser.id), today)
     
-    // Trigger initial tasks and queries fetch
     setIsLoadingTasks(true)
     setIsLoadingQueries(true)
+    setIsLoadingQueryReplies(true)
   }, [navigate])
 
-  // Fetch tasks from API
   useEffect(() => {
     const fetchTasks = async () => {
       try {
@@ -281,7 +277,6 @@ const EmployeeDashboard = () => {
           }
         })
 
-        // Transform API response to match component structure
         const transformedTasks = response.data.map(task => ({
           task_id: task.taskId,
           title: task.title,
@@ -305,13 +300,11 @@ const EmployeeDashboard = () => {
       }
     }
 
-    // Only fetch tasks if user is loaded and isLoadingTasks is true
     if (user && isLoadingTasks) {
       fetchTasks()
     }
   }, [user, toast, isLoadingTasks])
 
-  // Fetch queries from API
   useEffect(() => {
     const fetchQueries = async () => {
       try {
@@ -323,12 +316,11 @@ const EmployeeDashboard = () => {
           return
         }
 
-        // Parse user data to get current user ID
         const parsedUser = JSON.parse(userData)
         const currentUserId = parsedUser.userId || parsedUser.id || parsedUser.ID
 
-        console.log('Current User ID:', currentUserId, 'Type:', typeof currentUserId) // Debug log
-        console.log('Full user data:', parsedUser) // Debug log
+        console.log('Current User ID:', currentUserId, 'Type:', typeof currentUserId)
+        console.log('Full user data:', parsedUser)
 
         const response = await axios.get('http://localhost:5014/api/Queries', {
           headers: {
@@ -337,16 +329,14 @@ const EmployeeDashboard = () => {
           }
         })
 
-        console.log('All queries from API:', response.data) // Debug log
+        console.log('All queries from API:', response.data)
 
-        // Filter queries to show only those raised by the current user
         const userQueries = response.data.filter(query => {
           console.log(`Query ${query.queryId}: raisedBy=${query.raisedBy} (type: ${typeof query.raisedBy}), currentUserId=${currentUserId} (type: ${typeof currentUserId})`) // Debug log
-          // Handle both string and number comparisons
           return query.raisedBy == currentUserId || query.raisedBy === currentUserId
         })
 
-        console.log('Filtered user queries:', userQueries) // Debug log
+        console.log('Filtered user queries:', userQueries)
         setQueries(userQueries)
       } catch (error) {
         console.error('Error fetching queries:', error)
@@ -360,17 +350,60 @@ const EmployeeDashboard = () => {
       }
     }
 
-    // Only fetch queries if user is loaded and isLoadingQueries is true
     if (user && isLoadingQueries) {
       fetchQueries()
     }
   }, [user, toast, isLoadingQueries])
 
+  useEffect(() => {
+    const fetchAllQueryReplies = async () => {
+      try {
+        setIsLoadingQueryReplies(true)
+        const token = localStorage.getItem('authToken')
+        
+        if (!token) {
+          toast({
+            title: "Authentication Error",
+            description: "Please login again to view query replies",
+            variant: "destructive"
+          })
+          return
+        }
+
+        const response = await axios.get('http://localhost:5014/api/QueryReplies', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        })
+
+        console.log('Fetched query replies from API:', response.data)
+        setAllQueryRepliesFromAPI(response.data)
+      } catch (error) {
+        console.error('Error fetching query replies:', error)
+        toast({
+          title: "Error fetching query replies",
+          description: "Failed to load query replies from server",
+          variant: "destructive"
+        })
+      } finally {
+        setIsLoadingQueryReplies(false)
+      }
+    }
+
+    if (user && isLoadingQueryReplies) {
+      fetchAllQueryReplies()
+    }
+  }, [user, toast, isLoadingQueryReplies])
+
+  const getQueryReplies = (queryId) => {
+    return allQueryRepliesFromAPI.filter(reply => reply.queryId === queryId)
+      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+  }
+
   const handleLogout = () => {
     localStorage.removeItem('authToken')
     localStorage.removeItem('userData')
-    // Note: We do NOT clear user-specific timer data on logout anymore
-    // Timer data persists across login sessions for each user
     toast({
       title: "Logged out successfully",
       description: "You have been logged out of your account",
@@ -378,8 +411,7 @@ const EmployeeDashboard = () => {
     navigate('/', { replace: true })
   }
 
-  // Show loading if user data or tasks/queries are not loaded yet
-  if (!user || isLoadingTasks || isLoadingQueries) {
+  if (!user || isLoadingTasks || isLoadingQueries || isLoadingQueryReplies) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
@@ -387,7 +419,8 @@ const EmployeeDashboard = () => {
           <p className="text-gray-600">
             {!user ? 'Loading user data...' : 
              isLoadingTasks ? 'Loading tasks...' : 
-             'Loading queries...'}
+             isLoadingQueries ? 'Loading queries...' :
+             'Loading query replies...'}
           </p>
         </div>
       </div>
@@ -402,7 +435,6 @@ const EmployeeDashboard = () => {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
 
-  // Helper function to format relative time
   const formatRelativeTime = (dateString) => {
     const now = new Date()
     const date = new Date(dateString)
@@ -413,9 +445,9 @@ const EmployeeDashboard = () => {
 
     if (diffInMinutes < 1) {
       return 'Just now'
-    } else if (diffInMinutes < 60) {
+    } else if (diffInHours < 1) {
       return `${diffInMinutes} minute${diffInMinutes === 1 ? '' : 's'} ago`
-    } else if (diffInHours < 24) {
+    } else if (diffInDays < 1) {
       return `${diffInHours} hour${diffInHours === 1 ? '' : 's'} ago`
     } else if (diffInDays < 30) {
       return `${diffInDays} day${diffInDays === 1 ? '' : 's'} ago`
@@ -428,16 +460,13 @@ const EmployeeDashboard = () => {
     }
   }
 
-  // Check if current time is within break window (8 PM to 10 PM)
   const isBreakTimeWindow = () => {
     const currentHour = currentTime.getHours()
-    return currentHour >= 20 && currentHour < 22
+    return currentHour >= 6 && currentHour < 12
   }
 
-  // Handle manual break start/stop and pause/resume
   const handleManualBreak = () => {
     if (!isOnManualBreak) {
-      // Start manual break - stop any active task first
       if (activeTaskId) {
         setActiveTaskId(null)
         setIsPaused(false)
@@ -448,19 +477,17 @@ const EmployeeDashboard = () => {
       setIsBreakPaused(false)
       setBreakPauseStartTime(null)
       if (user) {
-        saveUserTimerData(user.id, taskTimers, null, false, true, Date.now(), totalBreakTime, false, null)
+        saveUserTimerData(user.id, taskTimers, null, false, true, Date.now(), totalBreakTime, false, null, startedTasks)
       }
       toast({
         title: "Break Started",
         description: "All tasks stopped. Break time tracking has started",
       })
     } else {
-      // Stop manual break
       if (manualBreakStartTime && !isBreakPaused) {
         const breakDuration = Math.floor((Date.now() - manualBreakStartTime) / 1000)
         setTotalBreakTime(prev => prev + breakDuration)
       } else if (isBreakPaused && breakPauseStartTime) {
-        // If break was paused, calculate time until pause
         const timeUntilPause = Math.floor((breakPauseStartTime - manualBreakStartTime) / 1000)
         setTotalBreakTime(prev => prev + timeUntilPause)
       }
@@ -469,7 +496,7 @@ const EmployeeDashboard = () => {
       setIsBreakPaused(false)
       setBreakPauseStartTime(null)
       if (user) {
-        saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused, false, null, totalBreakTime, false, null)
+        saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused, false, null, totalBreakTime, false, null, startedTasks)
       }
       toast({
         title: "Break Ended",
@@ -478,12 +505,10 @@ const EmployeeDashboard = () => {
     }
   }
 
-  // Handle break pause/resume
   const handleBreakPause = () => {
     if (!isOnManualBreak) return
 
     if (!isBreakPaused) {
-      // Pause break - add current break duration to total
       if (manualBreakStartTime) {
         const breakDuration = Math.floor((Date.now() - manualBreakStartTime) / 1000)
         setTotalBreakTime(prev => prev + breakDuration)
@@ -491,7 +516,7 @@ const EmployeeDashboard = () => {
       setIsBreakPaused(true)
       setBreakPauseStartTime(Date.now())
       if (user) {
-        saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused, isOnManualBreak, manualBreakStartTime, totalBreakTime, true, Date.now())
+        saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused, isOnManualBreak, manualBreakStartTime, totalBreakTime, true, Date.now(), startedTasks)
       }
       toast({
         title: "Break Paused",
@@ -500,10 +525,10 @@ const EmployeeDashboard = () => {
     } else {
       // Resume break
       setIsBreakPaused(false)
-      setManualBreakStartTime(Date.now()) // Reset break start time
+      setManualBreakStartTime(Date.now())
       setBreakPauseStartTime(null)
       if (user) {
-        saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused, isOnManualBreak, Date.now(), totalBreakTime, false, null)
+        saveUserTimerData(user.id, taskTimers, activeTaskId, isPaused, isOnManualBreak, Date.now(), totalBreakTime, false, null, startedTasks)
       }
       toast({
         title: "Break Resumed",
@@ -512,8 +537,7 @@ const EmployeeDashboard = () => {
     }
   }
 
-  const startTask = (taskId) => {
-    // Prevent starting tasks during manual break
+  const startTask = async (taskId) => {
     if (isOnManualBreak) {
       toast({
         title: "Cannot start task",
@@ -526,27 +550,75 @@ const EmployeeDashboard = () => {
     if (activeTaskId && activeTaskId !== taskId) {
       stopCurrentTask()
     }
+    
+    const isFirstTimeStart = !startedTasks.has(taskId)
+    
+    if (isFirstTimeStart) {
+      try {
+        const token = localStorage.getItem('authToken')
+        const userData = localStorage.getItem('userData')
+        
+        if (!token || !userData) {
+          toast({
+            title: "Authentication Error",
+            description: "Please login again to start tasks",
+            variant: "destructive"
+          })
+          return
+        }
+
+        const parsedUser = JSON.parse(userData)
+        const userId = parsedUser.userId || parsedUser.id || parsedUser.ID
+
+        const assignmentPayload = {
+          taskId: taskId,
+          userId: userId
+        }
+
+        await axios.post('http://localhost:5014/api/TaskAssignment', assignmentPayload, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        })
+
+        const newStartedTasks = new Set(startedTasks)
+        newStartedTasks.add(taskId)
+        setStartedTasks(newStartedTasks)
+
+        console.log('Task assignment API called successfully for task:', taskId)
+      } catch (error) {
+        console.error('Error calling TaskAssignment API:', error)
+        toast({
+          title: "Assignment Error",
+          description: "Failed to assign task, but timer will start anyway",
+          variant: "destructive"
+        })
+        const newStartedTasks = new Set(startedTasks)
+        newStartedTasks.add(taskId)
+        setStartedTasks(newStartedTasks)
+      }
+    }
+    
     setActiveTaskId(taskId)
     setIsPaused(false)
     if (user) {
-      saveUserTimerData(user.id, taskTimers, taskId, false, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime)
+      saveUserTimerData(user.id, taskTimers, taskId, false, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime, startedTasks)
     }
   }
 
   const pauseTimer = () => {
-    // Prevent pausing during manual break (task should already be stopped)
     if (isOnManualBreak) {
       return
     }
     
     setIsPaused(true)
     if (user) {
-      saveUserTimerData(user.id, taskTimers, activeTaskId, true, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime)
+      saveUserTimerData(user.id, taskTimers, activeTaskId, true, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime, startedTasks)
     }
   }
 
   const resumeTimer = () => {
-    // Prevent resuming during manual break
     if (isOnManualBreak) {
       toast({
         title: "Cannot resume task",
@@ -558,7 +630,7 @@ const EmployeeDashboard = () => {
     
     setIsPaused(false)
     if (user) {
-      saveUserTimerData(user.id, taskTimers, activeTaskId, false, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime)
+      saveUserTimerData(user.id, taskTimers, activeTaskId, false, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime, startedTasks)
     }
   }
 
@@ -566,7 +638,7 @@ const EmployeeDashboard = () => {
     setActiveTaskId(null)
     setIsPaused(false)
     if (user) {
-      saveUserTimerData(user.id, taskTimers, null, false, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime)
+      saveUserTimerData(user.id, taskTimers, null, false, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime, startedTasks)
     }
   }
 
@@ -575,7 +647,7 @@ const EmployeeDashboard = () => {
       setActiveTaskId(null)
       setIsPaused(false)
       if (user) {
-        saveUserTimerData(user.id, taskTimers, null, false, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime)
+        saveUserTimerData(user.id, taskTimers, null, false, isOnManualBreak, manualBreakStartTime, totalBreakTime, isBreakPaused, breakPauseStartTime, startedTasks)
       }
     }
   }
@@ -613,15 +685,13 @@ const EmployeeDashboard = () => {
         return
       }
 
-      // Prepare task object according to API structure
       const taskPayload = {
         title: newTask.title.trim(),
         description: newTask.description.trim(),
         estimatedHours: parseFloat(newTask.estimated_hours),
-        assignedBy: 2 // Default value as requested
+        assignedBy: 2
       }
 
-      // Call POST API
       const response = await axios.post('http://localhost:5014/api/Task', taskPayload, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -629,7 +699,6 @@ const EmployeeDashboard = () => {
         }
       })
 
-      // Reset form
       setNewTask({
         title: '',
         description: '',
@@ -638,13 +707,11 @@ const EmployeeDashboard = () => {
       })
       setIsAddTaskOpen(false)
       
-      // Show success toast
       toast({
         title: "Task added successfully",
         description: `Task "${taskPayload.title}" has been added to your list`,
       })
 
-      // Trigger re-fetch by updating loading state
       setIsLoadingTasks(true)
 
     } catch (error) {
@@ -696,10 +763,8 @@ const EmployeeDashboard = () => {
 
       const parsedUser = JSON.parse(userData)
       
-      // Debug: Check user data structure
       console.log('User data from localStorage:', parsedUser)
       
-      // Get user ID with fallback options
       const userId = parsedUser.userId || parsedUser.id || parsedUser.ID
       
       if (!userId) {
@@ -712,7 +777,6 @@ const EmployeeDashboard = () => {
         return
       }
       
-      // Prepare query object according to API structure
       const queryPayload = {
         taskId: selectedTaskForQuery.task_id,
         raisedBy: userId,
@@ -720,7 +784,6 @@ const EmployeeDashboard = () => {
         description: queryForm.description.trim()
       }
 
-      // Call POST API
       const response = await axios.post('http://localhost:5014/api/Queries', queryPayload, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -728,7 +791,6 @@ const EmployeeDashboard = () => {
         }
       })
 
-      // Reset form and close modal
       setQueryForm({
         subject: '',
         description: ''
@@ -736,14 +798,13 @@ const EmployeeDashboard = () => {
       setSelectedTaskForQuery(null)
       setIsQueryModalOpen(false)
       
-      // Show success toast
       toast({
         title: "Query submitted successfully",
         description: `Your query "${queryPayload.subject}" has been submitted for review`,
       })
 
-      // Trigger re-fetch queries to get updated data
       setIsLoadingQueries(true)
+      setIsLoadingQueryReplies(true)
 
     } catch (error) {
       console.error('Error submitting query:', error)
@@ -1083,7 +1144,7 @@ const EmployeeDashboard = () => {
                 <div className="flex justify-between">
                   <span className="text-sm text-gray-600">Break Window</span>
                   <Badge variant={isBreakTimeWindow() ? "default" : "secondary"}>
-                    {isBreakTimeWindow() ? "Available (8-10 PM)" : "Not Available"}
+                    {isBreakTimeWindow() ? "Available (6 AM - 12 PM)" : "Not Available"}
                   </Badge>
                 </div>
                 <div className="flex justify-between">
@@ -1301,26 +1362,45 @@ const EmployeeDashboard = () => {
                   <p className="text-gray-600 mb-4">You haven't raised any queries yet. Use the Query button on tasks to ask questions.</p>
                 </div>
               ) : (
-                queries.map(query => (
-                  <Card key={query.queryId} className="shadow-md border-0 bg-white/80 backdrop-blur-sm">
-                    <CardContent className="p-4">
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex-1">
-                          <h3 className="font-semibold text-gray-900 mb-2">{query.subject}</h3>
-                          <p className="text-sm text-gray-600">{query.description}</p>
+                queries.map(query => {
+                  const queryReplies = getQueryReplies(query.queryId)
+                  
+                  return (
+                    <Card key={query.queryId} className="shadow-md border-0 bg-white/80 backdrop-blur-sm">
+                      <CardContent className="p-4">
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex-1">
+                            <h3 className="font-semibold text-gray-900 mb-2">{query.subject}</h3>
+                            <p className="text-sm text-gray-600">{query.description}</p>
+                            
+                            {/* Display Query Replies - Only show for Resolved queries */}
+                            {query.status === 'Resolved' && queryReplies.length > 0 && (
+                              <div className="mt-4 space-y-3">
+                                <h4 className="font-medium text-gray-900 flex items-center space-x-2">
+                                  <MessageSquare className="w-4 h-4" />
+                                  <span>Replies ({queryReplies.length})</span>
+                                </h4>
+                                {queryReplies.map(reply => (
+                                  <div key={reply.replyId} className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-r-lg">
+                                    <p className="text-blue-900">{reply.message}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-col items-end space-y-2">
+                            <Badge variant={query.status === 'Open' ? "destructive" : query.status === 'Resolved' ? "default" : "outline"}>
+                              {query.status}
+                            </Badge>
+                            <span className="text-xs text-gray-500">
+                              {formatRelativeTime(query.raisedAt)}
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex flex-col items-end space-y-2">
-                          <Badge variant={query.status === 'Open' ? "destructive" : query.status === 'Resolved' ? "default" : "outline"}>
-                            {query.status}
-                          </Badge>
-                          <span className="text-xs text-gray-500">
-                            {formatRelativeTime(query.raisedAt)}
-                          </span>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
+                      </CardContent>
+                    </Card>
+                  )
+                })
               )}
             </div>
           </TabsContent>
